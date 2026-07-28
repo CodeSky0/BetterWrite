@@ -40,6 +40,20 @@
     {
       "idx": 5,
       "version": "6",
+      "when": 1783167418143,
+      "tag": "0005_clean_inhumans",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1783253818143,
+      "tag": "0006_sturdy_gabe_jones",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
       "when": 1785350000000,
       "tag": "0007_model_routes",
       "breakpoints": true

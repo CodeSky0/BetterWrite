@@ -18,14 +18,15 @@ const securityHeaders = [
     value: 'camera=(), microphone=(), geolocation=(), payment=()',
   },
   // 内容安全策略：默认同源；允许内联样式（Tailwind 需要）与必要的外部资源
-  // 开发模式下 Next.js 依赖内联脚本与 eval（HMR/RSC），需放宽 script-src
+  // Next.js 16 + Turbopack 的 RSC 流式传输、客户端水合与 Flight 数据均依赖内联 <script>
+  // （每个请求的 payload 不同，无法预计算 hash），因此 script-src 必须包含 'unsafe-inline'。
+  // 若需更严格的 CSP，可考虑：① 关闭 Turbopack 的 RSC 流式传输；② 在 middleware 中
+  // 生成 nonce 并注入 HTML（需等待 Next.js 官方 nonce 支持）。
   {
     key: 'Content-Security-Policy',
     value: [
       "default-src 'self'",
-      process.env.NODE_ENV === 'development'
-        ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
-        : "script-src 'self'",
+      `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : ''}`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",

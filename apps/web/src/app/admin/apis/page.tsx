@@ -49,10 +49,11 @@ export default function AdminApisPage() {
   const [saving, setSaving] = useState(false);
   // 模型路由：环节 -> apiConfigId（'' 表示未指定，按全局优先级）
   const [routeMap, setRouteMap] = useState<Record<CorrectionStage, string>>(
-    () => Object.fromEntries(CORRECTION_STAGES.map((s) => [s.value, ''])) as Record<
-      CorrectionStage,
-      string
-    >,
+    () =>
+      Object.fromEntries(CORRECTION_STAGES.map((s) => [s.value, ''])) as Record<
+        CorrectionStage,
+        string
+      >,
   );
   const [loadingRoutes, setLoadingRoutes] = useState(true);
   const [savingRoutes, setSavingRoutes] = useState(false);
@@ -84,9 +85,10 @@ export default function AdminApisPage() {
       const res = await fetcher.listAdminModelRoutes();
       if (res.success && res.data) {
         setRouteMap(
-          Object.fromEntries(
-            res.data.map((r) => [r.stage, r.apiConfigId ?? '']),
-          ) as Record<CorrectionStage, string>,
+          Object.fromEntries(res.data.map((r) => [r.stage, r.apiConfigId ?? ''])) as Record<
+            CorrectionStage,
+            string
+          >,
         );
       }
     } catch (err) {
@@ -328,7 +330,11 @@ export default function AdminApisPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-title-20">模型路由配置</CardTitle>
-                <Button size="sm" onClick={handleSaveRoutes} disabled={savingRoutes || loadingRoutes}>
+                <Button
+                  size="sm"
+                  onClick={handleSaveRoutes}
+                  disabled={savingRoutes || loadingRoutes}
+                >
                   <Save className="w-4 h-4 mr-1" />
                   {savingRoutes ? '保存中...' : '保存路由'}
                 </Button>

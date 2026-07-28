@@ -5,7 +5,7 @@ import {
   type ModelRouteMap,
   createRouterFromConfigs,
 } from '@betterwrite/ai';
-import { apiConfigs, db, modelRoutes } from '@betterwrite/db';
+import { apiConfigs, db } from '@betterwrite/db';
 import { decrypt } from '@betterwrite/shared/crypto';
 import { logger } from '@betterwrite/shared/logger';
 import { desc, eq } from 'drizzle-orm';

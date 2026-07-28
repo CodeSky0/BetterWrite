@@ -4855,9 +4855,7 @@ app.put(
     try {
       // 引用的 API 配置必须存在，避免写入悬空路由
       const configIds = [
-        ...new Set(
-          body.routes.map((r) => r.apiConfigId).filter((v): v is string => v !== null),
-        ),
+        ...new Set(body.routes.map((r) => r.apiConfigId).filter((v): v is string => v !== null)),
       ];
       if (configIds.length > 0) {
         const found = await db.query.apiConfigs.findMany({
@@ -4897,10 +4895,7 @@ app.put(
         }
       }
 
-      routesLogger.info(
-        { duration: Date.now() - startedAt },
-        '[API /admin/model-routes PUT] exit',
-      );
+      routesLogger.info({ duration: Date.now() - startedAt }, '[API /admin/model-routes PUT] exit');
       // 路由变更同样触发热更新（web 缓存失效 + Redis 通知 worker）
       await notifyApiConfigUpdated();
       return c.json({ success: true, data: { hotReload: true } });
