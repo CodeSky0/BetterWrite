@@ -23,6 +23,24 @@ export const apiConfigs = sqliteTable(
   }),
 );
 
+// 模型路由：为每个批改环节（content/topicAdherence/language/structure/scorer）
+// 固定一个首选 API 配置；未配置的环节按 api_configs.priority 从高到低选择。
+export const modelRoutes = sqliteTable(
+  'model_routes',
+  {
+    id: text('id').primaryKey(),
+    stage: text('stage').notNull().unique(),
+    apiConfigId: text('api_config_id')
+      .notNull()
+      .references(() => apiConfigs.id, { onDelete: 'cascade' }),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => ({
+    configIdx: index('model_routes_config_idx').on(t.apiConfigId),
+  }),
+);
+
 export const apiCallLogs = sqliteTable(
   'api_call_logs',
   {

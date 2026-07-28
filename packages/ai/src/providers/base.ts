@@ -25,6 +25,29 @@ export abstract class BaseAIProvider {
 
   protected cacheStats: CacheStats = { hits: 0, misses: 0, hitRate: 0 };
 
+  // 由管理后台 api_configs 下发的默认生成参数：temperature 作为未显式指定时的默认值，
+  // maxTokens 作为输出 token 上限（调用方传入更大值时会被压到该上限）。
+  protected defaultTemperature = 0.3;
+  protected maxTokensCap = 4096;
+
+  setGenerationDefaults(defaults: {
+    temperature?: number | null;
+    maxTokens?: number | null;
+  }): void {
+    if (defaults.temperature != null) this.defaultTemperature = defaults.temperature;
+    if (defaults.maxTokens != null && defaults.maxTokens > 0) {
+      this.maxTokensCap = defaults.maxTokens;
+    }
+  }
+
+  protected resolveTemperature(options?: CompletionOptions): number {
+    return options?.temperature ?? this.defaultTemperature;
+  }
+
+  protected resolveMaxOutputTokens(options?: CompletionOptions): number {
+    return Math.min(options?.maxOutputTokens ?? this.maxTokensCap, this.maxTokensCap);
+  }
+
   abstract complete(prompt: string, options?: CompletionOptions): Promise<string>;
 
   abstract generateObject<T>(

@@ -12,9 +12,7 @@ const envSchema = z
     LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
     WORKER_HEALTH_PORT: z.coerce.number().default(8080),
     WORKER_CONCURRENCY: z.coerce.number().default(3),
-    OPENAI_API_KEY: z.string().optional(),
-    DEEPSEEK_API_KEY: z.string().optional(),
-    ANTHROPIC_API_KEY: z.string().optional(),
+    // AI 供应商密钥不再从环境变量读取，由超管后台配置并加密存入数据库
     EXPO_ACCESS_TOKEN: z.string().optional(),
     ENCRYPTION_KEY: z.string().optional(),
   })

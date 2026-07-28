@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ZodSchema } from 'zod';
 import { BaseAIProvider } from '../providers/base.js';
-import { AIProviderRouter, createProviderRouter } from '../router.js';
+import { AIProviderRouter } from '../router.js';
 
 class MockProvider extends BaseAIProvider {
   readonly name: string;
@@ -139,36 +139,5 @@ describe('AIProviderRouter.executeWithFallback', () => {
     await expect(
       router.executeWithFallback('content', async (p) => p.complete('test')),
     ).rejects.toThrow('openai failed');
-  });
-});
-
-describe('createProviderRouter', () => {
-  it('creates router with no providers when env is empty', () => {
-    const router = createProviderRouter({});
-    expect(router.availableNames()).toHaveLength(0);
-  });
-
-  it('registers deepseek when API key is present', () => {
-    const router = createProviderRouter({
-      DEEPSEEK_API_KEY: 'test-key',
-      DEEPSEEK_MODEL: 'deepseek-chat',
-    });
-    expect(router.has('deepseek')).toBe(true);
-  });
-
-  it('registers openai when API key is present', () => {
-    const router = createProviderRouter({
-      OPENAI_API_KEY: 'test-key',
-      OPENAI_MODEL: 'gpt-4o',
-    });
-    expect(router.has('openai')).toBe(true);
-  });
-
-  it('registers both providers when both keys are present', () => {
-    const router = createProviderRouter({
-      DEEPSEEK_API_KEY: 'ds-key',
-      OPENAI_API_KEY: 'oa-key',
-    });
-    expect(router.availableNames()).toHaveLength(2);
   });
 });

@@ -36,6 +36,13 @@
       "when": 1783081018143,
       "tag": "0004_small_moonstone",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1785350000000,
+      "tag": "0007_model_routes",
+      "breakpoints": true
     }
   ]
 }

@@ -8,9 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { fetcher } from '@/lib/api/fetcher';
 import { clientLogger } from '@/lib/client-logger';
-import type { ApiCallLogItem, ApiConfigItem } from '@betterwrite/shared';
-import { UserRole } from '@betterwrite/shared';
-import { Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import type { ApiCallLogItem, ApiConfigItem, CorrectionStage } from '@betterwrite/shared';
+import { CORRECTION_STAGES, UserRole } from '@betterwrite/shared';
+import { Pencil, Plus, Save, Search, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 interface ConfigFormState {
@@ -47,6 +47,16 @@ export default function AdminApisPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ConfigFormState>(EMPTY_CONFIG);
   const [saving, setSaving] = useState(false);
+  // 模型路由：环节 -> apiConfigId（'' 表示未指定，按全局优先级）
+  const [routeMap, setRouteMap] = useState<Record<CorrectionStage, string>>(
+    () => Object.fromEntries(CORRECTION_STAGES.map((s) => [s.value, ''])) as Record<
+      CorrectionStage,
+      string
+    >,
+  );
+  const [loadingRoutes, setLoadingRoutes] = useState(true);
+  const [savingRoutes, setSavingRoutes] = useState(false);
+  const [routesSavedAt, setRoutesSavedAt] = useState<string | null>(null);
   const [logProvider, setLogProvider] = useState('');
   const [logDateFrom, setLogDateFrom] = useState('');
   const [logDateTo, setLogDateTo] = useState('');
@@ -65,6 +75,24 @@ export default function AdminApisPage() {
       clientLogger.error('[AdminApis] load configs error', err);
     } finally {
       setLoadingConfigs(false);
+    }
+  };
+
+  const loadRoutes = async () => {
+    setLoadingRoutes(true);
+    try {
+      const res = await fetcher.listAdminModelRoutes();
+      if (res.success && res.data) {
+        setRouteMap(
+          Object.fromEntries(
+            res.data.map((r) => [r.stage, r.apiConfigId ?? '']),
+          ) as Record<CorrectionStage, string>,
+        );
+      }
+    } catch (err) {
+      clientLogger.error('[AdminApis] load model routes error', err);
+    } finally {
+      setLoadingRoutes(false);
     }
   };
 
@@ -90,6 +118,7 @@ export default function AdminApisPage() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only effect
   useEffect(() => {
     loadConfigs();
+    loadRoutes();
     loadLogs();
   }, []);
 
@@ -146,6 +175,8 @@ export default function AdminApisPage() {
       }
       setModalOpen(false);
       await loadConfigs();
+      // 配置变更可能影响路由选项的 provider/model 展示，同步刷新
+      await loadRoutes();
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败');
       clientLogger.error('[AdminApis] save error', err);
@@ -159,9 +190,35 @@ export default function AdminApisPage() {
     try {
       await fetcher.deleteAdminApiConfig(id);
       await loadConfigs();
+      // 删除配置会级联清除对应路由，重新拉取保持一致
+      await loadRoutes();
     } catch (err) {
       setError(err instanceof Error ? err.message : '删除失败');
       clientLogger.error('[AdminApis] delete error', err);
+    }
+  };
+
+  const handleSaveRoutes = async () => {
+    setSavingRoutes(true);
+    setError(null);
+    try {
+      const res = await fetcher.saveAdminModelRoutes(
+        CORRECTION_STAGES.map((s) => ({
+          stage: s.value,
+          apiConfigId: routeMap[s.value] || null,
+        })),
+      );
+      if (!res.success) {
+        setError(res.error ?? '保存模型路由失败');
+        return;
+      }
+      setRoutesSavedAt(new Date().toLocaleTimeString());
+      await loadRoutes();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存模型路由失败');
+      clientLogger.error('[AdminApis] save model routes error', err);
+    } finally {
+      setSavingRoutes(false);
     }
   };
 
@@ -261,6 +318,55 @@ export default function AdminApisPage() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Model Routes */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-title-20">模型路由配置</CardTitle>
+                <Button size="sm" onClick={handleSaveRoutes} disabled={savingRoutes || loadingRoutes}>
+                  <Save className="w-4 h-4 mr-1" />
+                  {savingRoutes ? '保存中...' : '保存路由'}
+                </Button>
+              </div>
+              <p className="text-copy-14 text-neutral-8 mt-1">
+                为每个批改环节指定首选 API 配置；未指定或首选不可用时，按全局优先级自动回退。
+                保存后热更新，无需重启 worker。
+                {routesSavedAt && (
+                  <span className="text-success ml-2">已保存（{routesSavedAt}）</span>
+                )}
+              </p>
+            </CardHeader>
+            <CardContent>
+              {loadingRoutes ? (
+                <p className="text-copy-14 text-neutral-8">加载中...</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {CORRECTION_STAGES.map((stage) => (
+                    <div key={stage.value}>
+                      <span className="text-label-12 text-neutral-8">{stage.label}</span>
+                      <select
+                        className="flex h-10 w-full rounded-md bg-paper px-3 py-2 text-copy-14 text-neutral-10 ring-1 ring-border"
+                        value={routeMap[stage.value] ?? ''}
+                        onChange={(e) =>
+                          setRouteMap({ ...routeMap, [stage.value]: e.target.value })
+                        }
+                      >
+                        <option value="">默认（按优先级）</option>
+                        {configs
+                          .filter((c) => c.isActive)
+                          .map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.provider} · {c.model ?? '默认模型'}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  ))}
                 </div>
               )}
             </CardContent>

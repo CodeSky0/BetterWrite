@@ -18,11 +18,14 @@ const securityHeaders = [
     value: 'camera=(), microphone=(), geolocation=(), payment=()',
   },
   // 内容安全策略：默认同源；允许内联样式（Tailwind 需要）与必要的外部资源
+  // 开发模式下 Next.js 依赖内联脚本与 eval（HMR/RSC），需放宽 script-src
   {
     key: 'Content-Security-Policy',
     value: [
       "default-src 'self'",
-      "script-src 'self'",
+      process.env.NODE_ENV === 'development'
+        ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+        : "script-src 'self'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",

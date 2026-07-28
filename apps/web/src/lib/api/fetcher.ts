@@ -8,10 +8,12 @@ import type {
   AnnouncementItem,
   ApiCallLogItem,
   ApiConfigItem,
+  CorrectionStage,
   DailyQuote,
   ErrorBookGroup,
   ErrorBookItem,
   EssayDraft,
+  ModelRouteItem,
   PracticeExercise,
   QuestionBankItem,
   SchoolStats,
@@ -494,6 +496,14 @@ export const fetcher = {
     }),
   deleteAdminApiConfig: (id: string) =>
     request<ApiResponse<null>>(`/api/admin/api-configs/${id}`, { method: 'DELETE' }),
+
+  // Admin: Model Routes（各批改环节的首选模型配置）
+  listAdminModelRoutes: () => request<ApiResponse<ModelRouteItem[]>>('/api/admin/model-routes'),
+  saveAdminModelRoutes: (routes: { stage: CorrectionStage; apiConfigId: string | null }[]) =>
+    request<ApiResponse<null>>('/api/admin/model-routes', {
+      method: 'PUT',
+      body: JSON.stringify({ routes }),
+    }),
 
   // Admin: API Logs
   listAdminApiLogs: (params?: {

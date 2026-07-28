@@ -1,20 +1,9 @@
 import { logger } from '@betterwrite/shared/logger';
 import type { BaseAIProvider } from './providers/base.js';
-import { DeepSeekProvider } from './providers/deepseek.js';
-import { OpenAIProvider } from './providers/openai.js';
 
 const aiLogger = logger.child({ component: 'ai-router' });
 
 export type CorrectionType = 'content' | 'topicAdherence' | 'language' | 'structure' | 'scorer';
-
-export interface RouterEnv {
-  DEEPSEEK_API_KEY?: string;
-  DEEPSEEK_BASE_URL?: string;
-  DEEPSEEK_MODEL?: string;
-  OPENAI_API_KEY?: string;
-  OPENAI_BASE_URL?: string;
-  OPENAI_MODEL?: string;
-}
 
 export class AIProviderRouter {
   private providers = new Map<string, BaseAIProvider>();
@@ -64,24 +53,4 @@ export class AIProviderRouter {
       return await fn(this.get(fallback));
     }
   }
-}
-
-export function createProviderRouter(
-  env: RouterEnv | Record<string, string | undefined> = process.env,
-): AIProviderRouter {
-  const router = new AIProviderRouter();
-
-  if (env.DEEPSEEK_API_KEY) {
-    const provider = new DeepSeekProvider(env.DEEPSEEK_API_KEY, env.DEEPSEEK_BASE_URL);
-    (provider as { defaultModel: string }).defaultModel = env.DEEPSEEK_MODEL ?? 'deepseek-chat';
-    router.register(provider);
-  }
-
-  if (env.OPENAI_API_KEY) {
-    const provider = new OpenAIProvider(env.OPENAI_API_KEY, env.OPENAI_BASE_URL);
-    (provider as { defaultModel: string }).defaultModel = env.OPENAI_MODEL ?? 'gpt-4o';
-    router.register(provider);
-  }
-
-  return router;
 }

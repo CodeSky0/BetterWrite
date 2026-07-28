@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { type EssayTaskInput, correctEssay, createProviderRouter } from '@betterwrite/ai';
+import { type EssayTaskInput, correctEssay } from '@betterwrite/ai';
 import { corrections, db, essays } from '@betterwrite/db';
 import { getScoreTier } from '@betterwrite/shared';
 import { env } from '@betterwrite/shared/env';
@@ -14,14 +14,17 @@ import {
 import { Worker } from 'bullmq';
 import { and, eq, inArray, lt } from 'drizzle-orm';
 import { Redis } from 'ioredis';
+import { aiRouterManager } from './ai-config.js';
 
 export { performOcr, type OcrResult } from './ocr.js';
+export { AiRouterManager, aiRouterManager, loadRouterFromDb } from './ai-config.js';
 
 export interface CorrectionJob {
   essayId: string;
 }
 
-const router = createProviderRouter(process.env);
+// AI Provider 配置不再从环境变量读取，由超管在后台统一配置（api_configs 表），
+// aiRouterManager 负责从 DB 加载并通过 Redis 订阅 + 轮询实现热更新。
 const workerLogger = logger.child({ component: 'worker' });
 
 // 启动时恢复卡住的作文：仅当 status='correcting' 且 updatedAt 超过 10 分钟仍未更新时
@@ -110,6 +113,8 @@ export async function processCorrection(job: CorrectionJob): Promise<void> {
   const startTime = Date.now();
 
   try {
+    // 每次批改都从管理器获取当前路由器，配置热更新后新任务自动使用新配置。
+    const router = await aiRouterManager.ensureRouter();
     let result: Awaited<ReturnType<typeof correctEssay>>;
 
     if (router.availableNames().length === 0) {
@@ -332,6 +337,9 @@ async function main(): Promise<void> {
   const resetCount = await resetStuckEssays();
   workerLogger.info({ resetCount }, 'Worker starting');
 
+  // 启动时加载 AI 配置，并订阅配置变更频道实现热更新。
+  await aiRouterManager.start(env.REDIS_URL);
+
   const connection = new Redis(env.REDIS_URL, {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
@@ -412,6 +420,7 @@ async function main(): Promise<void> {
     isShuttingDown = true;
     workerLogger.info({ signal }, 'Shutting down worker');
     await worker.close();
+    await aiRouterManager.stop();
     await new Promise<void>((resolve, reject) => {
       healthServer.close((err) => (err ? reject(err) : resolve()));
     });

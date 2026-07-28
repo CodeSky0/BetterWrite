@@ -37,6 +37,10 @@
     "./queue": {
       "types": "./dist/queue.d.ts",
       "default": "./dist/queue.js"
+    },
+    "./crypto": {
+      "types": "./dist/crypto.d.ts",
+      "default": "./dist/crypto.js"
     }
   },
   "scripts": {

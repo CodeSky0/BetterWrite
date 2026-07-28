@@ -18,6 +18,14 @@ export default defineConfig({
         replacement: path.resolve(__dirname, 'packages/shared/src/queue.ts'),
       },
       {
+        find: '@betterwrite/shared/crypto',
+        replacement: path.resolve(__dirname, 'packages/shared/src/crypto.ts'),
+      },
+      {
+        find: '@betterwrite/shared/cache',
+        replacement: path.resolve(__dirname, 'packages/shared/src/cache/index.ts'),
+      },
+      {
         find: '@betterwrite/shared',
         replacement: path.resolve(__dirname, 'packages/shared/src/index.ts'),
       },

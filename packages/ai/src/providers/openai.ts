@@ -23,8 +23,8 @@ export class OpenAIProvider extends BaseAIProvider {
     const { text } = await generateText({
       model: this.client(options?.model ?? this.defaultModel),
       prompt,
-      temperature: options?.temperature ?? 0.3,
-      maxOutputTokens: options?.maxOutputTokens ?? 4096,
+      temperature: this.resolveTemperature(options),
+      maxOutputTokens: this.resolveMaxOutputTokens(options),
       abortSignal: this.buildAbortSignal(options),
     });
     return text;
@@ -39,8 +39,8 @@ export class OpenAIProvider extends BaseAIProvider {
       model: this.client(options?.model ?? this.defaultModel),
       prompt,
       schema,
-      temperature: options?.temperature ?? 0.3,
-      maxOutputTokens: options?.maxOutputTokens ?? 4096,
+      temperature: this.resolveTemperature(options),
+      maxOutputTokens: this.resolveMaxOutputTokens(options),
       abortSignal: this.buildAbortSignal(options),
     });
     return object;

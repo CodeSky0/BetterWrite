@@ -193,7 +193,14 @@ describe('API routes integration', () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          content: 'This is my test essay about daily life in Shenzhen.',
+          // 任务要求 80-125 词（服务端 Bug #3 修复后会校验字数），这里约 94 词
+          content:
+            'My daily life in Shenzhen is busy but happy. Every morning I get up at six thirty ' +
+            'and have breakfast with my family. Then I ride my bike to school with my best friend. ' +
+            'We have four lessons in the morning and three in the afternoon. My favourite subject ' +
+            'is English because my teacher makes every class interesting. After school I often play ' +
+            'basketball with my classmates for an hour. In the evening I finish my homework, read ' +
+            'books and sometimes watch the news. Before going to bed I always plan the next day.',
           taskId: fixtures.taskId,
           title: 'My Daily Life',
         }),

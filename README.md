@@ -46,7 +46,9 @@ cp .env.example .env
 编辑 `.env`，至少配置以下项：
 
 - `NEXTAUTH_SECRET`：随机字符串，生产环境务必修改
-- `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` / `ANTHROPIC_API_KEY`：至少配置一个 AI 供应商
+- `ENCRYPTION_KEY`：64 位 hex 密钥（`openssl rand -hex 32`），用于加密存储 AI API 密钥
+
+> AI 供应商密钥不再通过环境变量配置，启动后使用超管账号登录后台「API 管理」页面统一配置，详见 [AI 供应商配置](#ai-供应商配置)。
 
 ### 4. 初始化数据库
 
@@ -126,11 +128,21 @@ docker compose --env-file .env.production -f docker/docker-compose.yml down
 | `REDIS_URL` | Redis 连接地址 | `redis://localhost:6379` | `redis://redis:6379` |
 | `NEXTAUTH_SECRET` | Lucia 会话加密密钥 | 任意字符串 | `openssl rand -base64 32` |
 | `NEXT_PUBLIC_API_URL` | 前端 API 基地址 | `http://localhost:3000` | `http://localhost:3000` |
-| `OPENAI_API_KEY` | OpenAI API Key | - | - |
-| `DEEPSEEK_API_KEY` | DeepSeek API Key | - | - |
-| `ANTHROPIC_API_KEY` | Anthropic API Key | - | - |
+| `ENCRYPTION_KEY` | AI 密钥加密存储密钥（64 位 hex，web/worker 必须一致） | `openssl rand -hex 32` | `openssl rand -hex 32` |
 | `EXPO_ACCESS_TOKEN` | 推送通知令牌（可选） | - | - |
 | `WEB_PORT` | Web 服务对外端口 | `3000` | `3000` |
+
+> AI 供应商的 API Key 不再使用环境变量，由超管后台统一管理。
+
+## AI 供应商配置
+
+AI API 密钥由超管在后台「API 管理」页面统一配置，加密（AES-256-GCM）存入数据库：
+
+- **多提供商**：支持 OpenAI、DeepSeek、Anthropic、Qwen 及自定义 OpenAI 兼容端点，可配置 Base URL、模型、maxTokens、温度、每分钟限流等参数。
+- **优先级与回退**：多个配置按优先级降序使用，主模型调用失败或触发限流时自动切换到备用模型。
+- **模型路由**：可为题意符合度、内容、语言、结构、综合评分等批改环节分别指定首选配置。
+- **热更新**：配置保存后通过 Redis 通知 worker 实时重载（另有 60s 轮询兑底），无需重启服务。
+- **前置条件**：web 与 worker 需配置相同的 `ENCRYPTION_KEY`；未配置任何提供商时，批改降级为模拟评分。
 
 ## 默认账号
 
@@ -220,7 +232,7 @@ BetterWrite/
    ```bash
    openssl rand -base64 32
    ```
-2. **AI 供应商**: 配置 `OPENAI_API_KEY`、`DEEPSEEK_API_KEY` 或 `ANTHROPIC_API_KEY` 中至少一个，否则批改将使用模拟评分。
+2. **加密密钥**: 设置 `ENCRYPTION_KEY`（64 位 hex，`openssl rand -hex 32`），web 与 worker 必须一致。AI 供应商密钥部署后在超管后台「API 管理」页面配置，未配置时批改使用模拟评分。
 3. **默认账号**: 首次启动后使用种子服务创建默认账号，生产环境务必修改默认密码或删除默认账号。
 4. **HTTPS**: 使用反向代理并配置 TLS 证书。项目已提供 Nginx 示例：
    ```bash

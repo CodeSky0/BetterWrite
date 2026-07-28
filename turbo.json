@@ -12,9 +12,7 @@
     "LOG_LEVEL",
     "WORKER_HEALTH_PORT",
     "WORKER_CONCURRENCY",
-    "OPENAI_API_KEY",
-    "DEEPSEEK_API_KEY",
-    "ANTHROPIC_API_KEY",
+    "ENCRYPTION_KEY",
     "EXPO_ACCESS_TOKEN"
   ],
   "tasks": {

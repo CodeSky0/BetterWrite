@@ -1,20 +1,24 @@
-import { createDeepSeek } from '@ai-sdk/deepseek';
+import { createOpenAI } from '@ai-sdk/openai';
 import { generateObject, generateText } from 'ai';
 import type { ZodSchema } from 'zod';
 import { BaseAIProvider, type CompletionOptions, DEFAULT_AI_TIMEOUT_MS } from './base.js';
 
-export class DeepSeekProvider extends BaseAIProvider {
-  readonly name = 'deepseek';
-  readonly defaultModel = 'deepseek-chat';
+// 通用 OpenAI 兼容 Provider：用于 anthropic / qwen / 自定义等提供 OpenAI 兼容
+// Chat Completions 端点的服务。name 与 defaultModel 由管理后台的 api_configs 决定，
+// 因此同一个类可以承载任意数量的自定义端点。
+export class OpenAICompatibleProvider extends BaseAIProvider {
+  readonly name: string;
+  readonly defaultModel: string;
 
   private client;
 
-  constructor(apiKey: string, baseURL?: string) {
+  constructor(name: string, apiKey: string, baseURL: string, defaultModel: string) {
     super();
-    this.client = createDeepSeek({ apiKey, baseURL });
+    this.name = name;
+    this.defaultModel = defaultModel;
+    this.client = createOpenAI({ apiKey, baseURL });
   }
 
-  // Bug #142: 与 OpenAI 对齐，默认 30s 超时（之前硬编码 60s）。
   private buildAbortSignal(options?: CompletionOptions): AbortSignal {
     return AbortSignal.timeout(options?.timeoutMs ?? DEFAULT_AI_TIMEOUT_MS);
   }

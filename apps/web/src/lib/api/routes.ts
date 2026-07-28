@@ -23,6 +23,7 @@ import {
   essayDrafts,
   essayTasks,
   essays,
+  modelRoutes,
   practiceExercises,
   questionBank,
   schools,
@@ -53,9 +54,11 @@ import type {
   AnnouncementItem,
   ApiCallLogItem,
   ApiConfigItem,
+  CorrectionStage,
   DailyQuote,
   ErrorBookGroup,
   EssayDraft,
+  ModelRouteItem,
   PracticeExercise,
   QuestionBankItem,
   SchoolStats,
@@ -63,8 +66,10 @@ import type {
   StudentProgress,
 } from '@betterwrite/shared';
 import { DEDUCTION_RULES, SCORE_TIERS, SCORING_WEIGHTS } from '@betterwrite/shared';
+import { CORRECTION_STAGES } from '@betterwrite/shared';
 import { env } from '@betterwrite/shared/env';
 import { logger } from '@betterwrite/shared/logger';
+import { API_CONFIG_UPDATED_CHANNEL } from '@betterwrite/shared/queue';
 import { performOcr } from '@betterwrite/worker';
 import { zValidator } from '@hono/zod-validator';
 import bcrypt from 'bcryptjs';
@@ -73,13 +78,13 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
-import { getAiRouter } from '../ai/router';
+import { getAiRouter, invalidateAiRouterCache } from '../ai/router';
 import { memoizeAsync } from './cache';
 import { authMiddleware, requireRole } from './middleware';
 import type { AuthVariables } from './middleware';
 import { addCorrectionJob, correctionQueue } from './queue';
 import { rateLimit } from './rate-limiter';
-import { pingRedis } from './redis';
+import { getRedis, pingRedis } from './redis';
 
 const app = new Hono<{ Variables: AuthVariables }>().basePath('/api');
 
@@ -1432,7 +1437,7 @@ app.post(
       '[API POST /tasks/ai-generate]',
     );
 
-    const router = getAiRouter();
+    const router = await getAiRouter();
     if (router.availableNames().length === 0) {
       return c.json({ success: false, error: 'AI 服务未配置，请联系管理员' }, 503);
     }
@@ -2998,7 +3003,7 @@ app.post(
     const { errorType } = c.req.valid('json');
     const start = Date.now();
     routesLogger.info({ userId: user.id, errorType: errorType }, '[API /student/errors/practice]');
-    const router = getAiRouter();
+    const router = await getAiRouter();
     if (router.availableNames().length === 0) {
       return c.json({ success: false, error: 'AI 服务未配置' }, 503);
     }
@@ -3098,7 +3103,7 @@ app.post(
     const { text } = c.req.valid('json');
     const start = Date.now();
     routesLogger.info({ userId: user.id }, '[API /student/ai/polish]');
-    const router = getAiRouter();
+    const router = await getAiRouter();
     if (router.availableNames().length === 0) {
       return c.json({ success: false, error: 'AI 服务未配置' }, 503);
     }
@@ -3156,7 +3161,7 @@ app.post(
     const { text } = c.req.valid('json');
     const start = Date.now();
     routesLogger.info({ userId: user.id }, '[API /student/ai/upgrade]');
-    const router = getAiRouter();
+    const router = await getAiRouter();
     if (router.availableNames().length === 0) {
       return c.json({ success: false, error: 'AI 服务未配置' }, 503);
     }
@@ -3216,7 +3221,7 @@ app.post(
     const { word, context } = c.req.valid('json');
     const start = Date.now();
     routesLogger.info({ userId: user.id, word: word }, '[API /student/ai/synonym]');
-    const router = getAiRouter();
+    const router = await getAiRouter();
     if (router.availableNames().length === 0) {
       return c.json({ success: false, error: 'AI 服务未配置' }, 503);
     }
@@ -3275,7 +3280,7 @@ app.post(
     const { text } = c.req.valid('json');
     const start = Date.now();
     routesLogger.info({ userId: user.id }, '[API /student/ai/grammar]');
-    const router = getAiRouter();
+    const router = await getAiRouter();
     if (router.availableNames().length === 0) {
       return c.json({ success: false, error: 'AI 服务未配置' }, 503);
     }
@@ -3478,7 +3483,7 @@ app.post(
         return c.json({ success: false, error: '题目不存在' }, 404);
       }
     }
-    const router = getAiRouter();
+    const router = await getAiRouter();
     let feedback: GrammarResult = { errors: [] };
     if (router.availableNames().length > 0) {
       try {
@@ -4567,6 +4572,22 @@ const apiConfigUpdateSchema = apiConfigCreateSchema.partial().omit({ apiKey: tru
   apiKey: z.string().optional(),
 });
 
+// Bug #56 后续：AI 配置变更后不再要求重启 worker。这里做两件事：
+// 1) 失效本进程的 AI 路由器缓存（web 端 AI 助手立即生效）；
+// 2) 向 Redis 频道 publish 通知，worker 订阅后重新从 DB 加载配置（热更新）。
+// Redis 不可用时不报错：worker 还有 60s 轮询兑底，最终一致。
+async function notifyApiConfigUpdated(): Promise<void> {
+  invalidateAiRouterCache();
+  try {
+    await getRedis()?.publish(API_CONFIG_UPDATED_CHANNEL, JSON.stringify({ at: Date.now() }));
+  } catch (err) {
+    routesLogger.warn(
+      { err: err instanceof Error ? err.message : 'unknown' },
+      '[API notifyApiConfigUpdated] publish failed, worker will pick up via polling',
+    );
+  }
+}
+
 app.get('/admin/api-configs', authMiddleware, requireRole(UserRole.SUPER_ADMIN), async (c) => {
   const user = c.get('user');
   const startedAt = Date.now();
@@ -4646,9 +4667,9 @@ app.post(
         { duration: Date.now() - startedAt, id: id },
         '[API /admin/api-configs POST] exit',
       );
-      // Bug #56: AI provider 配置在 web 端写入，worker 是另一个进程不会感知；
-      // 必须提示 admin 需重启 worker 才生效。reload 字段供前端展示 toast。
-      return c.json({ success: true, data: { id, requiresWorkerReload: true } }, 201);
+      // Bug #56 已解决：通过 Redis 通知 + 轮询兑底实现热更新，无需重启 worker。
+      await notifyApiConfigUpdated();
+      return c.json({ success: true, data: { id, hotReload: true } }, 201);
     } catch (err) {
       routesLogger.error(
         { err: err instanceof Error ? err.message : 'unknown' },
@@ -4699,8 +4720,9 @@ app.put(
         { duration: Date.now() - startedAt },
         '[API /admin/api-configs/:id PUT] exit',
       );
-      // Bug #56: 更新 api config 后 worker 不会热加载；提示需重启。
-      return c.json({ success: true, data: { requiresWorkerReload: true } });
+      // Bug #56 已解决：配置变更后热更新，无需重启 worker。
+      await notifyApiConfigUpdated();
+      return c.json({ success: true, data: { hotReload: true } });
     } catch (err) {
       routesLogger.error(
         { err: err instanceof Error ? err.message : 'unknown' },
@@ -4738,14 +4760,156 @@ app.delete(
         { duration: Date.now() - startedAt },
         '[API /admin/api-configs/:id DELETE] exit',
       );
-      // Bug #56: 删除后 worker 仍可能继续用旧 provider，提示重启。
-      return c.json({ success: true, data: { requiresWorkerReload: true } });
+      // Bug #56 已解决：删除后同样触发热更新，worker 不会继续使用旧 provider。
+      await notifyApiConfigUpdated();
+      return c.json({ success: true, data: { hotReload: true } });
     } catch (err) {
       routesLogger.error(
         { err: err instanceof Error ? err.message : 'unknown' },
         '[API /admin/api-configs/:id DELETE] error:',
       );
       return c.json({ success: false, error: '删除 API 配置失败' }, 500);
+    }
+  },
+);
+
+// ========== Admin: Model Routes ==========
+// 每个批改环节（stage）固定一个首选 API 配置；未配置时按全局优先级选择。
+const modelRouteStageValues = CORRECTION_STAGES.map((s) => s.value) as [
+  CorrectionStage,
+  ...CorrectionStage[],
+];
+
+const modelRoutesUpdateSchema = z.object({
+  routes: z
+    .array(
+      z.object({
+        stage: z.enum(modelRouteStageValues),
+        // null 表示清除该环节的路由（回退到全局优先级）
+        apiConfigId: z.string().min(1).nullable(),
+      }),
+    )
+    .min(1)
+    .max(CORRECTION_STAGES.length),
+});
+
+app.get('/admin/model-routes', authMiddleware, requireRole(UserRole.SUPER_ADMIN), async (c) => {
+  const user = c.get('user');
+  const startedAt = Date.now();
+  routesLogger.info({ userId: user.id }, '[API /admin/model-routes]');
+
+  try {
+    const rows = await db
+      .select({
+        stage: modelRoutes.stage,
+        apiConfigId: modelRoutes.apiConfigId,
+        provider: apiConfigs.provider,
+        model: apiConfigs.model,
+        updatedAt: modelRoutes.updatedAt,
+      })
+      .from(modelRoutes)
+      .leftJoin(apiConfigs, eq(modelRoutes.apiConfigId, apiConfigs.id));
+    const byStage = new Map(rows.map((r) => [r.stage, r]));
+    // 未配置的环节以 apiConfigId=null 补全，保证前端始终拿到全部环节
+    const data: ModelRouteItem[] = CORRECTION_STAGES.map(({ value }) => {
+      const row = byStage.get(value);
+      return {
+        stage: value,
+        apiConfigId: row?.apiConfigId ?? null,
+        provider: row?.provider ?? null,
+        model: row?.model ?? null,
+        updatedAt: row?.updatedAt ?? null,
+      };
+    });
+    routesLogger.info(
+      { duration: Date.now() - startedAt, count: data.length },
+      '[API /admin/model-routes] exit',
+    );
+    return c.json({ success: true, data });
+  } catch (err) {
+    routesLogger.error(
+      { err: err instanceof Error ? err.message : 'unknown' },
+      '[API /admin/model-routes] error:',
+    );
+    return c.json({ success: false, error: '获取模型路由失败' }, 500);
+  }
+});
+
+app.put(
+  '/admin/model-routes',
+  // 与 api-configs 写路径保持同样的限流节奏
+  rateLimit(10, 60_000),
+  rateLimit(100, 24 * 60 * 60_000),
+  authMiddleware,
+  requireRole(UserRole.SUPER_ADMIN),
+  zValidator('json', modelRoutesUpdateSchema),
+  async (c) => {
+    const user = c.get('user');
+    const startedAt = Date.now();
+    const body = c.req.valid('json');
+    routesLogger.info(
+      { userId: user.id, count: body.routes.length },
+      '[API /admin/model-routes PUT]',
+    );
+
+    try {
+      // 引用的 API 配置必须存在，避免写入悬空路由
+      const configIds = [
+        ...new Set(
+          body.routes.map((r) => r.apiConfigId).filter((v): v is string => v !== null),
+        ),
+      ];
+      if (configIds.length > 0) {
+        const found = await db.query.apiConfigs.findMany({
+          where: inArray(apiConfigs.id, configIds),
+          columns: { id: true },
+        });
+        const foundIds = new Set(found.map((f) => f.id));
+        const missing = configIds.filter((id) => !foundIds.has(id));
+        if (missing.length > 0) {
+          return c.json({ success: false, error: `API 配置不存在: ${missing.join(', ')}` }, 400);
+        }
+      }
+
+      const now = new Date().toISOString();
+      for (const route of body.routes) {
+        if (route.apiConfigId === null) {
+          await db.delete(modelRoutes).where(eq(modelRoutes.stage, route.stage));
+          continue;
+        }
+        const existing = await db.query.modelRoutes.findFirst({
+          where: eq(modelRoutes.stage, route.stage),
+          columns: { id: true },
+        });
+        if (existing) {
+          await db
+            .update(modelRoutes)
+            .set({ apiConfigId: route.apiConfigId, updatedAt: now })
+            .where(eq(modelRoutes.id, existing.id));
+        } else {
+          await db.insert(modelRoutes).values({
+            id: randomUUID(),
+            stage: route.stage,
+            apiConfigId: route.apiConfigId,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+
+      routesLogger.info(
+        { duration: Date.now() - startedAt },
+        '[API /admin/model-routes PUT] exit',
+      );
+      // 路由变更同样触发热更新（web 缓存失效 + Redis 通知 worker）
+      await notifyApiConfigUpdated();
+      return c.json({ success: true, data: { hotReload: true } });
+    } catch (err) {
+      routesLogger.error(
+        { err: err instanceof Error ? err.message : 'unknown' },
+        '[API /admin/model-routes PUT] error:',
+      );
+      return c.json({ success: false, error: '保存模型路由失败' }, 500);
     }
   },
 );
@@ -5028,33 +5192,32 @@ app.delete(
 );
 
 // ========== Admin: Question Bank ==========
-const questionCreateSchema = z
-  .object({
-    topicType: z.string().min(1, '题目类型不能为空'),
-    topicCategory: z.string().optional(),
-    title: z.string().min(1, '标题不能为空'),
-    requirements: z.string().min(1, '要求不能为空'),
-    keyPoints: z.array(z.string()).optional(),
-    referenceEssay: z.string().optional(),
-    wordLimitMin: z.number().int().min(20).max(500).optional(),
-    wordLimitMax: z.number().int().min(20).max(500).optional(),
-    timeLimitMinutes: z.number().optional(),
-    difficulty: z.string().optional(),
-    source: z.string().optional(),
-  })
-  .refine(
-    (d) =>
-      d.wordLimitMin === undefined ||
-      d.wordLimitMax === undefined ||
-      d.wordLimitMin <= d.wordLimitMax,
-    {
-      // Bug #51: 同样规则，min > max 视为脏数据，create/update 都拒绝。
-      path: ['wordLimitMax'],
-      message: '字数上限不能小于下限',
-    },
-  );
+const questionBaseSchema = z.object({
+  topicType: z.string().min(1, '题目类型不能为空'),
+  topicCategory: z.string().optional(),
+  title: z.string().min(1, '标题不能为空'),
+  requirements: z.string().min(1, '要求不能为空'),
+  keyPoints: z.array(z.string()).optional(),
+  referenceEssay: z.string().optional(),
+  wordLimitMin: z.number().int().min(20).max(500).optional(),
+  wordLimitMax: z.number().int().min(20).max(500).optional(),
+  timeLimitMinutes: z.number().optional(),
+  difficulty: z.string().optional(),
+  source: z.string().optional(),
+});
 
-const questionUpdateSchema = questionCreateSchema.partial();
+// Bug #51: min > max 视为脏数据，create/update 都拒绝。
+// zod v4 不允许对带 refine 的 schema 调用 .partial()，故先 partial 再各自挂规则。
+const wordLimitRule = {
+  path: ['wordLimitMax'] as ['wordLimitMax'],
+  message: '字数上限不能小于下限',
+};
+const checkWordLimit = (d: { wordLimitMin?: number; wordLimitMax?: number }) =>
+  d.wordLimitMin === undefined || d.wordLimitMax === undefined || d.wordLimitMin <= d.wordLimitMax;
+
+const questionCreateSchema = questionBaseSchema.refine(checkWordLimit, wordLimitRule);
+
+const questionUpdateSchema = questionBaseSchema.partial().refine(checkWordLimit, wordLimitRule);
 
 // Bug #253: 题库管理列表无 rateLimit。
 app.get(
