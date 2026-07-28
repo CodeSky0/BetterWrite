@@ -7,12 +7,25 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/betterwrite
+  # GHCR 要求镜像名全小写；github.repository_owner 保留原始大小写，
+  # 由 lowercase-owner job 通过 tr 转换后输出给后续 job 使用。
 
 jobs:
+  lowercase-owner:
+    name: Normalize image owner
+    runs-on: ubuntu-latest
+    outputs:
+      owner: ${{ steps.norm.outputs.owner }}
+    steps:
+      - name: Lowercase owner
+        id: norm
+        run: echo "owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+        shell: bash
+
   build-and-push:
     name: Build and Push Images
     runs-on: ubuntu-latest
+    needs: lowercase-owner
     permissions:
       contents: read
       packages: write
@@ -35,9 +48,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ env.IMAGE_PREFIX }}-web
-            ${{ env.IMAGE_PREFIX }}-worker
-            ${{ env.IMAGE_PREFIX }}-migrate
+            ghcr.io/${{ needs.lowercase-owner.outputs.owner }}/betterwrite-web
+            ghcr.io/${{ needs.lowercase-owner.outputs.owner }}/betterwrite-worker
+            ghcr.io/${{ needs.lowercase-owner.outputs.owner }}/betterwrite-migrate
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -50,7 +63,7 @@ jobs:
           context: .
           file: ./docker/Dockerfile.web
           push: true
-          tags: ${{ env.IMAGE_PREFIX }}-web:${{ github.ref_name == 'main' && 'latest' || github.ref_name }}
+          tags: ghcr.io/${{ needs.lowercase-owner.outputs.owner }}/betterwrite-web:${{ github.ref_name == 'main' && 'latest' || github.ref_name }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -61,7 +74,7 @@ jobs:
           context: .
           file: ./docker/Dockerfile.worker
           push: true
-          tags: ${{ env.IMAGE_PREFIX }}-worker:${{ github.ref_name == 'main' && 'latest' || github.ref_name }}
+          tags: ghcr.io/${{ needs.lowercase-owner.outputs.owner }}/betterwrite-worker:${{ github.ref_name == 'main' && 'latest' || github.ref_name }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -72,7 +85,7 @@ jobs:
           context: .
           file: ./docker/Dockerfile.migrate
           push: true
-          tags: ${{ env.IMAGE_PREFIX }}-migrate:${{ github.ref_name == 'main' && 'latest' || github.ref_name }}
+          tags: ghcr.io/${{ needs.lowercase-owner.outputs.owner }}/betterwrite-migrate:${{ github.ref_name == 'main' && 'latest' || github.ref_name }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
