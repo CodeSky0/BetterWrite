@@ -1,6 +1,9 @@
-import { SESSION_COOKIE_NAME } from '@/lib/auth';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+
+// Edge Runtime 不支持 node:path 等 Node.js 模块，因此不能从 @/lib/auth 导入
+// （auth.ts 依赖 @betterwrite/db -> node:path）。Lucia 默认 cookie 名为 'auth_session'。
+const SESSION_COOKIE_NAME = 'auth_session';
 
 const PROTECTED_PREFIXES = ['/admin', '/teacher', '/student', '/school'];
 
