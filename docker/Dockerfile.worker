@@ -5,6 +5,16 @@ RUN corepack enable && corepack prepare pnpm@10.0.0 --activate
 FROM base AS builder
 WORKDIR /app
 
+# 构建时 shared/env.ts 会校验这些变量（运行时由 docker-compose 覆盖）
+ARG DATABASE_URL=file:../../packages/db/local.db
+ARG NEXTAUTH_SECRET=build-time-placeholder-secret-min-32-chars!!
+ARG REDIS_URL=redis://localhost:6379
+ARG ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+ENV DATABASE_URL=${DATABASE_URL}
+ENV NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+ENV REDIS_URL=${REDIS_URL}
+ENV ENCRYPTION_KEY=${ENCRYPTION_KEY}
+
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml turbo.json .npmrc ./
 COPY packages ./packages
 COPY apps/worker ./apps/worker
