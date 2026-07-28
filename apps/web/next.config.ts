@@ -39,7 +39,8 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-  output: 'standalone',
+  // Vercel 有自己的构建系统，不需要 standalone；Docker 部署需要 standalone 输出
+  output: process.env.VERCEL ? undefined : 'standalone',
   poweredByHeader: false,
   compress: true,
   transpilePackages: [
