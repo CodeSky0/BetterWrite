@@ -6,7 +6,11 @@ import { corrections, db, essays } from '@betterwrite/db';
 import { getScoreTier } from '@betterwrite/shared';
 import { env } from '@betterwrite/shared/env';
 import { logger } from '@betterwrite/shared/logger';
-import { CORRECTION_QUEUE, type CorrectionJobData } from '@betterwrite/shared/queue';
+import {
+  CORRECTION_QUEUE,
+  type CorrectionJobData,
+  aiProviderCircuitBreaker,
+} from '@betterwrite/shared/queue';
 import { Worker } from 'bullmq';
 import { and, eq, inArray, lt } from 'drizzle-orm';
 import { Redis } from 'ioredis';
@@ -54,6 +58,20 @@ export async function processCorrection(job: CorrectionJob): Promise<void> {
   const { essayId } = job;
   const correctionLogger = workerLogger.child({ essayId });
   correctionLogger.info('Correcting essay');
+
+  // Check circuit breaker before processing
+  if (!aiProviderCircuitBreaker.canAttempt()) {
+    const state = aiProviderCircuitBreaker.getState();
+    correctionLogger.warn(
+      {
+        isOpen: state.isOpen,
+        failureCount: state.failureCount,
+        nextAttemptTime: new Date(state.nextAttemptTime).toISOString(),
+      },
+      'Circuit breaker is open, skipping correction',
+    );
+    throw new Error('Circuit breaker is open, AI provider unavailable');
+  }
 
   const essay = await db.query.essays.findFirst({
     where: eq(essays.id, essayId),
@@ -139,6 +157,9 @@ export async function processCorrection(job: CorrectionJob): Promise<void> {
       result = await correctEssay(essay.content, taskInput, router);
     }
 
+    // Record success in circuit breaker
+    aiProviderCircuitBreaker.recordSuccess();
+
     const correctionTimeMs = Date.now() - startTime;
     const correctionId = randomUUID();
 
@@ -194,6 +215,9 @@ export async function processCorrection(job: CorrectionJob): Promise<void> {
       'Essay corrected',
     );
   } catch (error) {
+    // Record failure in circuit breaker
+    aiProviderCircuitBreaker.recordFailure();
+
     correctionLogger.error({ err: error }, 'Essay correction failed');
     // Bug #218: 失败兜底更新前附加 status='correcting' 条件，避免覆盖"已被并发 worker
     // 标记为 completed / 再次重置为 pending"的状态；并 try/catch 自身防止"DB 不可用
@@ -267,10 +291,8 @@ function createMockCorrection(
   } as const;
   const topicAdherenceScore =
     Math.round(Math.min(total * (2.0 / 15), DIMENSION_MAX.topicAdherence) * 10) / 10;
-  const contentScore =
-    Math.round(Math.min(total * (5.0 / 15), DIMENSION_MAX.content) * 10) / 10;
-  const languageScore =
-    Math.round(Math.min(total * (4.0 / 15), DIMENSION_MAX.language) * 10) / 10;
+  const contentScore = Math.round(Math.min(total * (5.0 / 15), DIMENSION_MAX.content) * 10) / 10;
+  const languageScore = Math.round(Math.min(total * (4.0 / 15), DIMENSION_MAX.language) * 10) / 10;
   const structureScore =
     Math.round(Math.min(total * (2.5 / 15), DIMENSION_MAX.structure) * 10) / 10;
   const presentationScore =

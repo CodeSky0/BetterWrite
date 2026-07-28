@@ -32,6 +32,10 @@ export const essayTasks = sqliteTable(
   (t) => ({
     classIdx: index('essay_tasks_class_idx').on(t.classId),
     statusIdx: index('essay_tasks_status_idx').on(t.status),
+    // Composite indexes for common query patterns
+    classStatusIdx: index('essay_tasks_class_status_idx').on(t.classId, t.status),
+    creatorIdx: index('essay_tasks_creator_idx').on(t.createdBy),
+    dueDateIdx: index('essay_tasks_due_date_idx').on(t.dueDate),
   }),
 );
 
@@ -70,6 +74,11 @@ export const essays = sqliteTable(
     taskIdx: index('essays_task_idx').on(t.taskId),
     statusIdx: index('essays_status_idx').on(t.status),
     scoreTierIdx: index('essays_score_tier_idx').on(t.scoreTier),
+    // Composite indexes for common query patterns
+    studentStatusIdx: index('essays_student_status_idx').on(t.studentId, t.status),
+    studentSubmittedIdx: index('essays_student_submitted_idx').on(t.studentId, t.submittedAt),
+    taskStatusIdx: index('essays_task_status_idx').on(t.taskId, t.status),
+    statusSubmittedIdx: index('essays_status_submitted_idx').on(t.status, t.submittedAt),
   }),
 );
 

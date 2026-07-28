@@ -113,14 +113,22 @@ export const radius = {
 
 export type Radius = keyof typeof radius;
 
+/**
+ * Yohaku role+px 字号尺度 —— 与 apps/web @theme 的 --text-* 令牌对齐。
+ * CJK 禁用合成粗体：标题字重至多 font-medium (500)。
+ */
 export const fontSizes = {
-  xs: 12,
-  sm: 14,
-  base: 16,
-  lg: 18,
-  xl: 20,
-  '2xl': 24,
-  '3xl': 30,
+  caption10: 10,
+  label12: 12,
+  copy13: 13,
+  copy14: 14,
+  copy15: 15,
+  copy16: 16,
+  title20: 20,
+  title24: 24,
+  title28: 28,
+  display36: 36,
+  display48: 48,
 } as const;
 
 export type FontSize = keyof typeof fontSizes;
@@ -134,8 +142,22 @@ export const fontWeights = {
 
 export type FontWeight = keyof typeof fontWeights;
 
+/**
+ * 与字号令牌一一绑定的行高（RN 使用绝对 px）。
+ * 比例与 web --text-*--line-height 一致。
+ */
 export const lineHeights = {
-  tight: 1.2,
-  normal: 1.5,
-  relaxed: 1.75,
+  caption10: 14,
+  label12: 18,
+  copy13: 20,
+  copy14: 22,
+  copy15: 24,
+  copy16: 26,
+  title20: 28,
+  title24: 32,
+  title28: 36,
+  display36: 44,
+  display48: 56,
 } as const;
+
+export type LineHeight = keyof typeof lineHeights;

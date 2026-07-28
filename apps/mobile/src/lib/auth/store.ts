@@ -3,11 +3,10 @@ import * as Device from 'expo-device';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { create } from 'zustand';
-import { AuthError, clearStoredToken, setStoredToken } from '../api/client';
+import { AuthError, clearStoredToken, getStoredToken, setStoredToken } from '../api/client';
 import { fetcher } from '../api/fetcher';
 import { registerForPushNotifications } from '../notifications/push';
 
-const TOKEN_KEY = '@betterwrite/token';
 const USER_KEY = '@betterwrite/user';
 
 interface AuthUser {
@@ -160,10 +159,7 @@ export const useAuth = create<AuthState>((set, get) => ({
       // 任何 SecureStore 异常（iOS Keychain 失败、Android EncryptedSharedPreferences
       // 损坏、负空间、设备越狱检测等）都会向上 propagate，让整个 app 启动崩溃。
       // 这里套了外层 try/catch，但为了更稳，仍用 getStoredToken() 走已被包裹的实现。
-      const [token, user] = await Promise.all([
-        getStoredToken(),
-        readPersistedUser(),
-      ]);
+      const [token, user] = await Promise.all([getStoredToken(), readPersistedUser()]);
       if (token && user) {
         set({ token, user });
         await get().fetchMe();

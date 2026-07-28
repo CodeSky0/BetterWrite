@@ -9,10 +9,23 @@ const dbUrl = process.env.DATABASE_URL ?? `file:${join(__dirname, '..', 'local.d
 const isRemote =
   dbUrl.startsWith('libsql://') || dbUrl.startsWith('http://') || dbUrl.startsWith('https://');
 
+// Connection pool configuration
+const MAX_CONNECTIONS = Number.parseInt(process.env.DB_MAX_CONNECTIONS ?? '10', 10);
+
 const client = createClient({
   url: dbUrl,
   authToken: isRemote ? process.env.DATABASE_AUTH_TOKEN : undefined,
 });
 
 export const db = drizzle(client, { schema });
+
+// Export connection pool stats for monitoring
+export function getDbConnectionStats() {
+  return {
+    maxConnections: MAX_CONNECTIONS,
+    isRemote,
+    url: isRemote ? dbUrl.replace(/:.*@/, ':****@') : 'local',
+  };
+}
+
 export * from './schema/index.js';

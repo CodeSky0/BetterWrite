@@ -69,7 +69,7 @@ export default function TeacherResourcesPage() {
               >
                 <CardContent className="p-6">
                   <div className="flex items-start gap-4">
-                    <div className="text-4xl leading-none" aria-hidden>
+                    <div className="text-display-36 leading-none" aria-hidden>
                       {category.icon}
                     </div>
                     <div className="flex-1 min-w-0">

@@ -1,6 +1,6 @@
 import type { TextStyle, ViewStyle } from 'react-native';
 import { StyleSheet } from 'react-native';
-import { colors, darkColors, fontSizes, fontWeights, spacing } from './tokens';
+import { colors, darkColors, fontSizes, fontWeights, lineHeights, spacing } from './tokens';
 
 export type ThemedStyles = {
   container: ViewStyle;
@@ -29,14 +29,12 @@ export function createThemedStyles(isDark: boolean): ThemedStyles {
       paddingHorizontal: spacing[4],
     },
     card: {
+      // Yohaku：禁用硬阴影，以 1px 边框分隔层级（对应 web 的 ring-1 ring-border）
       backgroundColor: c.bgElevated,
       borderRadius: 12,
       padding: spacing[4],
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.06,
-      shadowRadius: 8,
-      elevation: 2,
+      borderWidth: 1,
+      borderColor: c.border,
     },
     row: {
       flexDirection: 'row',
@@ -56,34 +54,35 @@ export function createThemedStyles(isDark: boolean): ThemedStyles {
       justifyContent: 'space-between',
     },
     title: {
-      fontSize: fontSizes['2xl'],
-      fontWeight: fontWeights.bold,
+      // CJK 标题至多 font-medium，禁止合成粗体
+      fontSize: fontSizes.title24,
+      fontWeight: fontWeights.medium,
       color: c.textPrimary,
-      lineHeight: 30,
+      lineHeight: lineHeights.title24,
     },
     subtitle: {
-      fontSize: fontSizes.lg,
-      fontWeight: fontWeights.semibold,
-      color: c.textSecondary,
-      lineHeight: 26,
-    },
-    body: {
-      fontSize: fontSizes.base,
-      fontWeight: fontWeights.normal,
-      color: c.textPrimary,
-      lineHeight: 24,
-    },
-    label: {
-      fontSize: fontSizes.sm,
+      fontSize: fontSizes.title20,
       fontWeight: fontWeights.medium,
       color: c.textSecondary,
-      lineHeight: 20,
+      lineHeight: lineHeights.title20,
+    },
+    body: {
+      fontSize: fontSizes.copy16,
+      fontWeight: fontWeights.normal,
+      color: c.textPrimary,
+      lineHeight: lineHeights.copy16,
+    },
+    label: {
+      fontSize: fontSizes.copy14,
+      fontWeight: fontWeights.medium,
+      color: c.textSecondary,
+      lineHeight: lineHeights.copy14,
     },
     caption: {
-      fontSize: fontSizes.xs,
+      fontSize: fontSizes.label12,
       fontWeight: fontWeights.normal,
       color: c.textTertiary,
-      lineHeight: 18,
+      lineHeight: lineHeights.label12,
     },
     divider: {
       height: StyleSheet.hairlineWidth,
@@ -96,18 +95,18 @@ export function createThemedStyles(isDark: boolean): ThemedStyles {
       borderRadius: 8,
       paddingHorizontal: spacing[3],
       paddingVertical: spacing[3],
-      fontSize: fontSizes.base,
+      fontSize: fontSizes.copy16,
       color: c.textPrimary,
       backgroundColor: c.bgElevated,
     },
     inputLabel: {
-      fontSize: fontSizes.sm,
+      fontSize: fontSizes.copy14,
       fontWeight: fontWeights.medium,
       color: c.textSecondary,
       marginBottom: spacing[2],
     },
     inputError: {
-      fontSize: fontSizes.xs,
+      fontSize: fontSizes.label12,
       color: c.error,
       marginTop: spacing[1],
     },

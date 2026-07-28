@@ -64,7 +64,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   label: {
-    fontSize: fontSizes.sm,
+    fontSize: fontSizes.copy14,
     fontWeight: fontWeights.medium,
     marginBottom: spacing[2],
   },
@@ -73,7 +73,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: spacing[3],
     paddingVertical: spacing[3],
-    fontSize: fontSizes.base,
+    fontSize: fontSizes.copy16,
     minHeight: 44,
   },
   multiline: {
@@ -81,7 +81,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   error: {
-    fontSize: fontSizes.xs,
+    fontSize: fontSizes.label12,
     marginTop: spacing[1],
   },
 });

@@ -32,6 +32,7 @@ pnpm-debug.log*
 !.vscode/settings.json
 !.vscode/extensions.json
 .idea
+.qoder/
 *.swp
 *.swo
 
@@ -48,3 +49,6 @@ coverage
 .cache
 .pnpm-store/
 local.db
+
+# pnpm 安装中断产生的临时锁文件
+pnpm-lock.yaml.*

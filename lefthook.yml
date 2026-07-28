@@ -10,4 +10,6 @@ pre-commit:
       glob: "*.{js,ts,jsx,tsx,json}"
       run: pnpm exec biome check --write --no-errors-on-unmatched {staged_files}
     typecheck:
-      run: pnpm exec turbo run typecheck
+      # 注：turbo 二进制在部分 Windows 环境会 Illegal instruction 崩溃，
+      # 改用 pnpm -r 递归执行，检查范围与 turbo run typecheck 等价。
+      run: pnpm -r typecheck

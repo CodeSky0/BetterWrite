@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { ThemeColors } from '../../theme/tokens';
-import { fontWeights, spacing } from '../../theme/tokens';
+import { fontSizes, fontWeights, spacing } from '../../theme/tokens';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'outline';
 export type ButtonSize = 'sm' | 'md' | 'lg';
@@ -21,7 +21,12 @@ export type ButtonProps = {
 
 const sizeHeights: Record<ButtonSize, number> = { sm: 36, md: 44, lg: 52 };
 const sizePaddings: Record<ButtonSize, number> = { sm: 12, md: 16, lg: 24 };
-const sizeFontSizes: Record<ButtonSize, number> = { sm: 13, md: 15, lg: 17 };
+// Yohaku role+px 字号令牌
+const sizeFontSizes: Record<ButtonSize, number> = {
+  sm: fontSizes.copy13,
+  md: fontSizes.copy15,
+  lg: fontSizes.copy16,
+};
 
 export function Button({
   title,
@@ -43,7 +48,7 @@ export function Button({
   const textStyle = {
     fontSize: sizeFontSizes[size],
     color: getTextColor(variant, colors),
-    fontWeight: fontWeights.semibold,
+    fontWeight: fontWeights.medium,
   };
 
   return (
@@ -91,7 +96,8 @@ function getBaseStyle(
 function getTextColor(variant: ButtonVariant, c: ThemeColors): string {
   switch (variant) {
     case 'primary':
-      return '#FFFFFF';
+      // 暗色下 neutral1 反相为深色，保证桃色底上的文字对比度
+      return c.neutral1;
     case 'secondary':
       return c.textPrimary;
     case 'outline':
@@ -114,7 +120,7 @@ const styles = StyleSheet.create({
     gap: spacing[2],
   },
   text: {
-    fontWeight: fontWeights.semibold,
+    fontWeight: fontWeights.medium,
   },
   disabled: {
     opacity: 0.5,

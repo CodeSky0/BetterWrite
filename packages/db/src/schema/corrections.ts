@@ -29,6 +29,9 @@ export const corrections = sqliteTable(
   },
   (t) => ({
     essayIdx: index('corrections_essay_idx').on(t.essayId),
+    // Composite indexes for analytics queries
+    scoreTierIdx: index('corrections_score_tier_idx').on(t.scoreTier),
+    createdAtIdx: index('corrections_created_at_idx').on(t.createdAt),
   }),
 );
 

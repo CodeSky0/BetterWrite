@@ -8,8 +8,8 @@ WORKDIR /app
 COPY --chown=node:node package.json pnpm-workspace.yaml pnpm-lock.yaml turbo.json .npmrc ./
 COPY --chown=node:node packages ./packages
 
-# Use --no-frozen-lockfile to avoid lockfile issues in Docker build context
-RUN pnpm install --no-frozen-lockfile
+# Use frozen-lockfile for security and reproducibility
+RUN pnpm install --frozen-lockfile
 
 RUN mkdir -p /app/data && chown -R node:node /app/data /app/packages
 

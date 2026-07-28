@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { ThemeColors } from '../../theme/tokens';
-import { fontSizes, fontWeights, spacing } from '../../theme/tokens';
+import { fontSizes, fontWeights, lineHeights, spacing } from '../../theme/tokens';
 
 export type EmptyProps = {
   icon?: ReactNode;
@@ -34,15 +34,15 @@ const styles = StyleSheet.create({
     marginBottom: spacing[4],
   },
   title: {
-    fontSize: fontSizes.lg,
-    fontWeight: fontWeights.semibold,
+    fontSize: fontSizes.title20,
+    fontWeight: fontWeights.medium,
     textAlign: 'center',
     marginBottom: spacing[2],
   },
   description: {
-    fontSize: fontSizes.sm,
+    fontSize: fontSizes.copy14,
     fontWeight: fontWeights.normal,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: lineHeights.copy14,
   },
 });

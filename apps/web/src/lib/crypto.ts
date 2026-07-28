@@ -29,8 +29,15 @@ function getKey(): Buffer {
 export function encrypt(plain: string): string {
   const iv = randomBytes(IV_LEN);
   const cipher = createCipheriv(ALGO, getKey(), iv);
-  const enc = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  let enc: Buffer;
+  try {
+    enc = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  } catch (err) {
+    cipher.destroy();
+    throw err;
+  }
   const authTag = cipher.getAuthTag();
+  cipher.destroy();
   return Buffer.concat([iv, authTag, enc]).toString('base64');
 }
 
@@ -41,7 +48,15 @@ export function decrypt(payload: string): string {
   const enc = buf.subarray(IV_LEN + AUTH_TAG_LEN);
   const decipher = createDecipheriv(ALGO, getKey(), iv);
   decipher.setAuthTag(authTag);
-  return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
+  let dec: Buffer;
+  try {
+    dec = Buffer.concat([decipher.update(enc), decipher.final()]);
+  } catch (err) {
+    decipher.destroy();
+    throw err;
+  }
+  decipher.destroy();
+  return dec.toString('utf8');
 }
 
 export function maskKey(key: string): string {

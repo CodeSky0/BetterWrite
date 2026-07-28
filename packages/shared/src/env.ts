@@ -16,17 +16,20 @@ const envSchema = z
     DEEPSEEK_API_KEY: z.string().optional(),
     ANTHROPIC_API_KEY: z.string().optional(),
     EXPO_ACCESS_TOKEN: z.string().optional(),
+    ENCRYPTION_KEY: z.string().optional(),
   })
   .refine(
     (data) => {
       if (data.NODE_ENV === 'production') {
         if (!data.REDIS_URL) return false;
         if (data.NEXTAUTH_SECRET.length < 32) return false;
+        if (!data.ENCRYPTION_KEY || data.ENCRYPTION_KEY.length !== 64) return false;
       }
       return true;
     },
     {
-      message: '生产环境必须设置 REDIS_URL，且 NEXTAUTH_SECRET 长度 >= 32',
+      message:
+        '生产环境必须设置 REDIS_URL，且 NEXTAUTH_SECRET 长度 >= 32，且 ENCRYPTION_KEY 长度 = 64',
     },
   );
 

@@ -96,16 +96,41 @@ export default async function TeacherDashboardPage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {stats.map((stat) => (
-            <Card key={stat.label}>
+          {stats.map((stat, index) => (
+            <Card
+              key={stat.label}
+              className={`group hover:ring-neutral-4 transition-all duration-fast ease-yohaku hover:-translate-y-0.5 animate-slide-in-top ${
+                index === 0
+                  ? 'animate-delay-100'
+                  : index === 1
+                    ? 'animate-delay-200'
+                    : index === 2
+                      ? 'animate-delay-300'
+                      : 'animate-delay-400'
+              }`}
+            >
               <CardHeader className="pb-2 flex flex-row items-center justify-between">
                 <CardTitle className="text-copy-14 font-medium text-neutral-8">
                   {stat.label}
                 </CardTitle>
-                <span className="text-neutral-7">{stat.icon}</span>
+                <span
+                  className={`p-2 rounded-lg bg-neutral-2 group-hover:bg-accent/10 transition-colors duration-fast ${
+                    index === 0
+                      ? 'text-accent'
+                      : index === 1
+                        ? 'text-success'
+                        : index === 2
+                          ? 'text-warning'
+                          : 'text-info'
+                  }`}
+                >
+                  {stat.icon}
+                </span>
               </CardHeader>
               <CardContent>
-                <p className="text-title-28 font-medium text-neutral-10">{stat.value}</p>
+                <p className="text-title-28 font-medium text-neutral-10 group-hover:scale-105 transition-transform duration-fast">
+                  {stat.value}
+                </p>
               </CardContent>
             </Card>
           ))}
@@ -114,14 +139,14 @@ export default async function TeacherDashboardPage() {
         {error && <p className="text-error text-copy-14">{error}</p>}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card className="flex flex-col">
+          <Card className="flex flex-col hover:ring-neutral-4 transition-all duration-fast ease-yohaku animate-slide-in-top animate-delay-200">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-title-20 flex items-center gap-2">
                 <School className="w-4 h-4 text-accent" />
                 我的班级
               </CardTitle>
               <Link href="/teacher/students">
-                <Button variant="ghost" size="sm">
+                <Button variant="ghost" size="sm" className="hover:bg-accent/10">
                   学生管理
                   <ChevronRight className="w-4 h-4 ml-1" />
                 </Button>
@@ -129,23 +154,26 @@ export default async function TeacherDashboardPage() {
             </CardHeader>
             <CardContent className="flex-1">
               {!data || data.classes.length === 0 ? (
-                <p className="text-neutral-8 text-copy-14">暂无任教班级</p>
+                <div className="text-center py-8">
+                  <School className="w-12 h-12 text-neutral-4 mx-auto mb-3" />
+                  <p className="text-neutral-8 text-copy-14">暂无任教班级</p>
+                </div>
               ) : (
                 <ul className="space-y-3">
                   {data.classes.map((cls) => (
                     <li
                       key={cls.id}
-                      className="flex items-center justify-between p-3 bg-neutral-2 rounded-md"
+                      className="flex items-center justify-between p-3 bg-neutral-2 rounded-md hover:bg-neutral-3 transition-colors duration-fast cursor-pointer group"
                     >
                       <div>
-                        <p className="font-medium text-neutral-10">
+                        <p className="font-medium text-neutral-10 group-hover:text-accent transition-colors">
                           {cls.grade} · {cls.name}
                         </p>
                         <p className="text-label-12 text-neutral-8 mt-0.5">
                           {cls.studentCount} 名学生
                         </p>
                       </div>
-                      <Users className="w-4 h-4 text-neutral-7" />
+                      <Users className="w-4 h-4 text-neutral-7 group-hover:text-accent transition-colors" />
                     </li>
                   ))}
                 </ul>
@@ -153,14 +181,14 @@ export default async function TeacherDashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="flex flex-col">
+          <Card className="flex flex-col hover:ring-neutral-4 transition-all duration-fast ease-yohaku animate-slide-in-top animate-delay-300">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-title-20 flex items-center gap-2">
                 <PenLine className="w-4 h-4 text-accent" />
                 最近任务
               </CardTitle>
               <Link href="/teacher/tasks">
-                <Button variant="ghost" size="sm">
+                <Button variant="ghost" size="sm" className="hover:bg-accent/10">
                   全部任务
                   <ChevronRight className="w-4 h-4 ml-1" />
                 </Button>
@@ -168,21 +196,26 @@ export default async function TeacherDashboardPage() {
             </CardHeader>
             <CardContent className="flex-1">
               {!data || data.recentTasks.length === 0 ? (
-                <p className="text-neutral-8 text-copy-14">暂无任务，点击右上角布置第一篇作文</p>
+                <div className="text-center py-8">
+                  <PenLine className="w-12 h-12 text-neutral-4 mx-auto mb-3" />
+                  <p className="text-neutral-8 text-copy-14">暂无任务，点击右上角布置第一篇作文</p>
+                </div>
               ) : (
                 <ul className="space-y-3">
                   {data.recentTasks.map((task) => (
                     <li
                       key={task.id}
-                      className="flex items-center justify-between p-3 bg-neutral-2 rounded-md"
+                      className="flex items-center justify-between p-3 bg-neutral-2 rounded-md hover:bg-neutral-3 transition-colors duration-fast cursor-pointer group"
                     >
                       <div className="min-w-0">
-                        <p className="font-medium text-neutral-10 truncate">{task.title}</p>
+                        <p className="font-medium text-neutral-10 truncate group-hover:text-accent transition-colors">
+                          {task.title}
+                        </p>
                         <p className="text-label-12 text-neutral-8 mt-0.5">
                           {task.topicType} · {task.wordLimitMin}-{task.wordLimitMax} 词
                         </p>
                       </div>
-                      <BookOpen className="w-4 h-4 text-neutral-7 shrink-0 ml-2" />
+                      <BookOpen className="w-4 h-4 text-neutral-7 shrink-0 ml-2 group-hover:text-accent transition-colors" />
                     </li>
                   ))}
                 </ul>
@@ -191,14 +224,14 @@ export default async function TeacherDashboardPage() {
           </Card>
         </div>
 
-        <Card>
+        <Card className="hover:ring-neutral-4 transition-all duration-fast ease-yohaku animate-slide-in-top animate-delay-400">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-title-20 flex items-center gap-2">
               <FileText className="w-4 h-4 text-accent" />
               最近作文
             </CardTitle>
             <Link href="/teacher/essays">
-              <Button variant="ghost" size="sm">
+              <Button variant="ghost" size="sm" className="hover:bg-accent/10">
                 批改中心
                 <ChevronRight className="w-4 h-4 ml-1" />
               </Button>
@@ -206,16 +239,19 @@ export default async function TeacherDashboardPage() {
           </CardHeader>
           <CardContent>
             {!data || data.recentEssays.length === 0 ? (
-              <p className="text-neutral-8 text-copy-14">暂无学生提交作文</p>
+              <div className="text-center py-8">
+                <FileText className="w-12 h-12 text-neutral-4 mx-auto mb-3" />
+                <p className="text-neutral-8 text-copy-14">暂无学生提交作文</p>
+              </div>
             ) : (
               <ul className="space-y-3">
                 {data.recentEssays.map((essay) => (
                   <li
                     key={essay.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-neutral-2 rounded-md"
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-neutral-2 rounded-md hover:bg-neutral-3 transition-colors duration-fast cursor-pointer group"
                   >
                     <div className="min-w-0">
-                      <p className="font-medium text-neutral-10 truncate">
+                      <p className="font-medium text-neutral-10 truncate group-hover:text-accent transition-colors">
                         {essay.title ?? essay.task?.title ?? '未命名作文'}
                       </p>
                       <p className="text-label-12 text-neutral-8 mt-0.5">
@@ -236,7 +272,7 @@ export default async function TeacherDashboardPage() {
                         </span>
                       )}
                       <Link href={`/teacher/essays/${essay.id}`}>
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" className="hover:bg-accent/10">
                           查看
                         </Button>
                       </Link>

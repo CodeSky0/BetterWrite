@@ -1,7 +1,7 @@
 import { createDeepSeek } from '@ai-sdk/deepseek';
 import { generateObject, generateText } from 'ai';
 import type { ZodSchema } from 'zod';
-import { DEFAULT_AI_TIMEOUT_MS, type CompletionOptions } from './base.js';
+import { BaseAIProvider, type CompletionOptions, DEFAULT_AI_TIMEOUT_MS } from './base.js';
 
 export class DeepSeekProvider extends BaseAIProvider {
   readonly name = 'deepseek';

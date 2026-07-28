@@ -16,7 +16,7 @@ export function Card({ children, style, onPress, colors }: CardProps) {
     styles.card,
     {
       backgroundColor: colors.bgElevated,
-      shadowColor: '#000',
+      borderColor: colors.border,
     },
     style,
   ];
@@ -34,12 +34,10 @@ export function Card({ children, style, onPress, colors }: CardProps) {
 
 const styles = StyleSheet.create({
   card: {
+    // Yohaku：禁用硬阴影，以 1px 边框分隔层级（对应 web 的 ring-1 ring-border）
     borderRadius: radius.lg,
     padding: spacing[4],
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
+    borderWidth: 1,
   },
   pressed: {
     opacity: 0.9,

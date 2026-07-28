@@ -58,10 +58,7 @@ export async function addCorrectionJob(essayId: string): Promise<void> {
     const message = err instanceof Error ? err.message : String(err);
     if (/already exists|duplicate/i.test(message)) {
       // 极端竞态：另一个并发 retry 已经 add 了。返回成功即可（最终都会被 worker 处理）。
-      logger.warn(
-        { essayId, message },
-        'Correction job already exists, treating as success',
-      );
+      logger.warn({ essayId, message }, 'Correction job already exists, treating as success');
       return;
     }
     throw err;

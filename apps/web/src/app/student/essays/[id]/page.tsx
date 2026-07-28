@@ -1,11 +1,14 @@
 'use client';
 
 import { CorrectionResultView } from '@/components/essay/correction-result';
+import { InteractiveFeedback } from '@/components/essay/interactive-feedback';
+import { LearningProgress } from '@/components/essay/learning-progress';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { RoleGuard } from '@/components/layout/role-guard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { type CorrectionDetail, type Essay, fetcher } from '@/lib/api/fetcher';
 import { UserRole, getEssayStatusLabel } from '@betterwrite/shared';
 import { Clock, RefreshCw } from 'lucide-react';
@@ -91,49 +94,98 @@ export default function EssayDetailPage() {
                 )}
               </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-title-20">原文</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-neutral-10 leading-relaxed whitespace-pre-wrap">
-                    {essay.content}
-                  </p>
-                  <p className="text-copy-14 text-neutral-7 mt-4">词数：{essay.wordCount}</p>
-                </CardContent>
-              </Card>
-
-              {essay.status === 'pending' && (
-                <Card>
-                  <CardContent className="py-12 text-center">
-                    <RefreshCw className="w-10 h-10 text-accent mx-auto mb-3 animate-spin" />
-                    <p className="text-neutral-10 font-medium">作文正在排队等待批改</p>
-                    <p className="text-neutral-8 text-copy-14 mt-1">请稍候刷新查看结果</p>
-                  </CardContent>
-                </Card>
-              )}
-
-              {essay.status === 'correcting' && (
-                <Card>
-                  <CardContent className="py-12 text-center">
-                    <RefreshCw className="w-10 h-10 text-accent mx-auto mb-3 animate-spin" />
-                    <p className="text-neutral-10 font-medium">AI 正在批改中</p>
-                    <p className="text-neutral-8 text-copy-14 mt-1">通常需要几秒到几十秒</p>
-                  </CardContent>
-                </Card>
-              )}
-
-              {essay.status === 'failed' && (
-                <Card>
-                  <CardContent className="py-12 text-center">
-                    <p className="text-error font-medium">批改失败</p>
-                    <p className="text-neutral-8 text-copy-14 mt-1">请尝试刷新或联系老师</p>
-                  </CardContent>
-                </Card>
-              )}
-
               {correction && (
-                <CorrectionResultView correction={correction} originalEssay={essay.content} />
+                <Tabs defaultValue="correction" className="w-full">
+                  <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="correction">Correction</TabsTrigger>
+                    <TabsTrigger value="interactive">Interactive</TabsTrigger>
+                    <TabsTrigger value="progress">Progress</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="correction">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-title-20">原文</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-neutral-10 leading-relaxed whitespace-pre-wrap">
+                          {essay.content}
+                        </p>
+                        <p className="text-copy-14 text-neutral-7 mt-4">词数：{essay.wordCount}</p>
+                      </CardContent>
+                    </Card>
+                    <CorrectionResultView correction={correction} originalEssay={essay.content} />
+                  </TabsContent>
+
+                  <TabsContent value="interactive">
+                    <InteractiveFeedback
+                      errors={correction.errors.map((e: any) => ({
+                        ...e,
+                        category: e.type,
+                        priority: 'medium' as const,
+                      }))}
+                      suggestions={correction.suggestions}
+                      originalEssay={essay.content}
+                      revisedEssay={correction.revisedEssay || essay.content}
+                      highlights={correction.highlights}
+                    />
+                  </TabsContent>
+
+                  <TabsContent value="progress">
+                    <LearningProgress
+                      totalEssays={1} // This would come from user stats
+                      averageScore={correction.totalScore}
+                      errorProgress={[]} // This would come from error book
+                      streak={0} // This would come from user stats
+                      achievements={[]} // This would come from user stats
+                    />
+                  </TabsContent>
+                </Tabs>
+              )}
+
+              {!correction && (
+                <>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-title-20">原文</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-neutral-10 leading-relaxed whitespace-pre-wrap">
+                        {essay.content}
+                      </p>
+                      <p className="text-copy-14 text-neutral-7 mt-4">词数：{essay.wordCount}</p>
+                    </CardContent>
+                  </Card>
+
+                  {essay.status === 'pending' && (
+                    <Card>
+                      <CardContent className="py-12 text-center">
+                        <RefreshCw className="w-10 h-10 text-accent mx-auto mb-3 animate-spin" />
+                        <p className="text-neutral-10 font-medium">作文正在排队等待批改</p>
+                        <p className="text-neutral-8 text-copy-14 mt-1">请稍候刷新查看结果</p>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {essay.status === 'correcting' && (
+                    <Card>
+                      <CardContent className="py-12 text-center">
+                        <RefreshCw className="w-10 h-10 text-accent mx-auto mb-3 animate-spin" />
+                        <p className="text-neutral-10 font-medium">AI 正在批改中</p>
+                        <p className="text-neutral-8 text-copy-14 mt-1">通常需要几秒到几十秒</p>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {essay.status === 'failed' && (
+                    <Card>
+                      <CardContent className="py-12 text-center">
+                        <p className="text-error font-medium">批改失败</p>
+                        <p className="text-neutral-8 text-copy-14 mt-1">请尝试刷新或联系老师</p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
               )}
             </>
           ) : null}

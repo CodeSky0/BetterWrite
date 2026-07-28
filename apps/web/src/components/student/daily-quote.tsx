@@ -16,7 +16,7 @@ export function DailyQuote({ quote }: DailyQuoteProps) {
     return (
       <Card>
         <CardContent className="py-8 text-center">
-          <span className="font-serif text-accent text-4xl select-none" aria-hidden>
+          <span className="font-serif text-accent text-display-36 select-none" aria-hidden>
             &ldquo;
           </span>
           <p className="text-neutral-7 text-copy-14 mt-2">暂无金句</p>
@@ -29,7 +29,7 @@ export function DailyQuote({ quote }: DailyQuoteProps) {
     <Card>
       <CardContent className="p-6 flex gap-4">
         <span
-          className="font-serif text-accent text-4xl leading-none select-none flex-shrink-0"
+          className="font-serif text-accent text-display-36 leading-none select-none flex-shrink-0"
           aria-hidden
         >
           &ldquo;

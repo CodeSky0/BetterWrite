@@ -68,7 +68,7 @@ import { logger } from '@betterwrite/shared/logger';
 import { performOcr } from '@betterwrite/worker';
 import { zValidator } from '@hono/zod-validator';
 import bcrypt from 'bcryptjs';
-import { and, count, desc, eq, gt, gte, inArray, lt, sql, type SQL } from 'drizzle-orm';
+import { type SQL, and, count, desc, eq, gt, gte, inArray, lt, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
@@ -251,10 +251,7 @@ function isLoginLocked(key: string): { locked: true; retryAfterSec: number } | {
   return { locked: false };
 }
 
-function recordLoginFailure(
-  emailKey: string,
-  ipKey: string,
-): void {
+function recordLoginFailure(emailKey: string, ipKey: string): void {
   const emailEntry = getLoginFailEntry(emailKey, LOGIN_FAIL_WINDOW_MS);
   emailEntry.count += 1;
   if (emailEntry.count >= LOGIN_FAIL_THRESHOLD) {
@@ -268,7 +265,7 @@ function recordLoginFailure(
   }
 }
 
-function clearLoginFailures(emailKey: string, ipKey: string): void {
+function clearLoginFailures(emailKey: string, _ipKey: string): void {
   // Bug #225: 成功登录只清 email 维度；IP 维度保留累计避免攻击者换 email 继续刷。
   loginFailStore.delete(emailKey);
 }
@@ -292,83 +289,83 @@ app.post(
   rateLimit(200, 24 * 60 * 60_000),
   zValidator('json', loginSchema),
   async (c) => {
-  // Bug #55: 邮箱小写规范化；Bug #49: 在 db 查询前先做一次 bcrypt 假比对，保证
-  // 即便用户不存在也走过一次 bcrypt cost，规避攻击者通过响应时差枚举有效邮箱。
-  const raw = c.req.valid('json');
-  const email = raw.email.toLowerCase().trim();
-  const password = raw.password;
+    // Bug #55: 邮箱小写规范化；Bug #49: 在 db 查询前先做一次 bcrypt 假比对，保证
+    // 即便用户不存在也走过一次 bcrypt cost，规避攻击者通过响应时差枚举有效邮箱。
+    const raw = c.req.valid('json');
+    const email = raw.email.toLowerCase().trim();
+    const password = raw.password;
 
-  // Bug #225: 同时检查 email 维度（保护真实用户）和 IP 维度（防 DoS 流量）。
-  const clientIp = resolveClientIp(c);
-  const lockKey = `login:email:${email}`;
-  const ipLockKey = `login:ip:${clientIp}`;
-  // IP 维度被锁时优先于 email 检查（避免攻击者用 IP 锁把真实用户也拖下水，
-  // 因为 IP 锁的触发条件是 30 次失败，远超正常使用模式）。
-  const ipLock = isLoginLocked(ipLockKey);
-  if (ipLock.locked) {
+    // Bug #225: 同时检查 email 维度（保护真实用户）和 IP 维度（防 DoS 流量）。
+    const clientIp = resolveClientIp(c);
+    const lockKey = `login:email:${email}`;
+    const ipLockKey = `login:ip:${clientIp}`;
+    // IP 维度被锁时优先于 email 检查（避免攻击者用 IP 锁把真实用户也拖下水，
+    // 因为 IP 锁的触发条件是 30 次失败，远超正常使用模式）。
+    const ipLock = isLoginLocked(ipLockKey);
+    if (ipLock.locked) {
+      return c.json(
+        {
+          success: false,
+          error: `登录失败次数过多，请 ${Math.ceil(ipLock.retryAfterSec / 60)} 分钟后再试`,
+        },
+        429,
+        { 'Retry-After': String(ipLock.retryAfterSec) },
+      );
+    }
+    const lockState = isLoginLocked(lockKey);
+    if (lockState.locked) {
+      return c.json(
+        {
+          success: false,
+          error: `登录失败次数过多，请 ${Math.ceil(lockState.retryAfterSec / 60)} 分钟后再试`,
+        },
+        429,
+        { 'Retry-After': String(lockState.retryAfterSec) },
+      );
+    }
+
+    const DUMMY_HASH = '$2a$10$CwTycUXWue0Thq9StjUM0uJ8jG4dNiQB2nCsjC/9o7RXh2v7Z8g6u';
+    const user = await db.query.users.findFirst({ where: eq(users.email, email) });
+    const hashToCompare = user?.passwordHash ?? DUMMY_HASH;
+    const passwordValid = await bcrypt.compare(password, hashToCompare);
+
+    if (!user || !user.isActive || !passwordValid) {
+      // Bug #123: 同样记录失败次数，无论用户是否存在（让 attacker 无法用
+      // "邮箱不存在" 与 "密码错误" 的差异推断有效账户）。
+      // Bug #225: 同步累计 IP 维度。
+      recordLoginFailure(lockKey, ipLockKey);
+      return c.json({ success: false, error: '邮箱或密码错误' }, 401);
+    }
+
+    // 登录成功，清除失败计数（仅 email 维度；IP 维度保留累计防刷）。
+    clearLoginFailures(lockKey, ipLockKey);
+
+    const session = await lucia.createSession(user.id, {});
+    const sessionCookie = lucia.createSessionCookie(session.id);
+
+    await db
+      .update(users)
+      .set({ lastLoginAt: new Date().toISOString() })
+      .where(eq(users.id, user.id));
+
     return c.json(
       {
-        success: false,
-        error: `登录失败次数过多，请 ${Math.ceil(ipLock.retryAfterSec / 60)} 分钟后再试`,
+        success: true,
+        data: {
+          userId: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          schoolId: user.schoolId,
+        },
       },
-      429,
-      { 'Retry-After': String(ipLock.retryAfterSec) },
-    );
-  }
-  const lockState = isLoginLocked(lockKey);
-  if (lockState.locked) {
-    return c.json(
+      200,
       {
-        success: false,
-        error: `登录失败次数过多，请 ${Math.ceil(lockState.retryAfterSec / 60)} 分钟后再试`,
+        'Set-Cookie': sessionCookie.serialize(),
       },
-      429,
-      { 'Retry-After': String(lockState.retryAfterSec) },
     );
-  }
-
-  const DUMMY_HASH =
-    '$2a$10$CwTycUXWue0Thq9StjUM0uJ8jG4dNiQB2nCsjC/9o7RXh2v7Z8g6u';
-  const user = await db.query.users.findFirst({ where: eq(users.email, email) });
-  const hashToCompare = user?.passwordHash ?? DUMMY_HASH;
-  const passwordValid = await bcrypt.compare(password, hashToCompare);
-
-  if (!user || !user.isActive || !passwordValid) {
-    // Bug #123: 同样记录失败次数，无论用户是否存在（让 attacker 无法用
-    // "邮箱不存在" 与 "密码错误" 的差异推断有效账户）。
-    // Bug #225: 同步累计 IP 维度。
-    recordLoginFailure(lockKey, ipLockKey);
-    return c.json({ success: false, error: '邮箱或密码错误' }, 401);
-  }
-
-  // 登录成功，清除失败计数（仅 email 维度；IP 维度保留累计防刷）。
-  clearLoginFailures(lockKey, ipLockKey);
-
-  const session = await lucia.createSession(user.id, {});
-  const sessionCookie = lucia.createSessionCookie(session.id);
-
-  await db
-    .update(users)
-    .set({ lastLoginAt: new Date().toISOString() })
-    .where(eq(users.id, user.id));
-
-  return c.json(
-    {
-      success: true,
-      data: {
-        userId: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        schoolId: user.schoolId,
-      },
-    },
-    200,
-    {
-      'Set-Cookie': sessionCookie.serialize(),
-    },
-  );
-});
+  },
+);
 
 // Bug #126: 弱密码黑名单，常见弱密码必须拒绝（即便长度合规）。
 const WEAK_PASSWORDS = new Set([
@@ -413,6 +410,7 @@ const registerSchema = z.object({
     .string()
     .min(1, '请输入姓名')
     .max(100, '姓名过长')
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: 有意过滤 C0/DEL 控制字符，防止注入与排版错乱
     .regex(/^[^\u0000-\u001f\u007f]+$/, '姓名包含非法控制字符'),
   // Bug #44: 仅允许注册学生角色；教师/学校管理员必须由 super_admin 后台创建，
   // 防止任何人通过公开注册接口越权获取教师身份。
@@ -494,7 +492,8 @@ app.post('/auth/register', rateLimit(5, 60_000), zValidator('json', registerSche
         id: randomUUID(),
         classId: classRecord.id,
         userId,
-        role: role === UserRole.TEACHER ? 'teacher' : 'student',
+        // 注册 schema 已强制 role=STUDENT（防越权），此处恒为 'student'
+        role: 'student',
         createdAt: now,
       });
     }
@@ -562,8 +561,7 @@ app.put(
     // 攻击者通过响应时差可推断"旧密码是否正确"，进而把改密端点当成"密码验证"端点爆破。
     // 修复：统一走一次 DUMMY_HASH bcrypt（不存在/禁用时）+ 不匹配时再做一次假 hash 抵消 hash(newPassword) 的耗时，
     // 使三条分支的响应时长大致一致。
-    const DUMMY_HASH =
-      '$2a$10$CwTycUXWue0Thq9StjUM0uJ8jG4dNiQB2nCsjC/9o7RXh2v7Z8g6u';
+    const DUMMY_HASH = '$2a$10$CwTycUXWue0Thq9StjUM0uJ8jG4dNiQB2nCsjC/9o7RXh2v7Z8g6u';
 
     const record = await db.query.users.findFirst({
       where: eq(users.id, user.id),
@@ -603,11 +601,7 @@ app.put(
     const sessionCookie = lucia.createSessionCookie(newSession.id);
 
     routesLogger.info({ userId: user.id }, '[API PUT /auth/password] password updated');
-    return c.json(
-      { success: true },
-      200,
-      { 'Set-Cookie': sessionCookie.serialize() },
-    );
+    return c.json({ success: true }, 200, { 'Set-Cookie': sessionCookie.serialize() });
   },
 );
 
@@ -685,8 +679,7 @@ app.post(
       );
     }
 
-    const DUMMY_HASH =
-      '$2a$10$CwTycUXWue0Thq9StjUM0uJ8jG4dNiQB2nCsjC/9o7RXh2v7Z8g6u';
+    const DUMMY_HASH = '$2a$10$CwTycUXWue0Thq9StjUM0uJ8jG4dNiQB2nCsjC/9o7RXh2v7Z8g6u';
     const user = await db.query.users.findFirst({ where: eq(users.email, email) });
     const hashToCompare = user?.passwordHash ?? DUMMY_HASH;
     const passwordValid = await bcrypt.compare(password, hashToCompare);
@@ -739,22 +732,23 @@ app.get(
   rateLimit(1000, 24 * 60 * 60_000),
   authMiddleware,
   async (c) => {
-  const user = c.get('user');
-  routesLogger.info({ userId: user.id }, '[API /auth/tokens]');
-  const list = await db.query.apiTokens.findMany({
-    where: and(eq(apiTokens.userId, user.id), gt(apiTokens.expiresAt, new Date().toISOString())),
-    columns: {
-      id: true,
-      platform: true,
-      deviceName: true,
-      lastUsedAt: true,
-      createdAt: true,
-      expiresAt: true,
-    },
-    orderBy: desc(apiTokens.createdAt),
-  });
-  return c.json({ success: true, data: list });
-});
+    const user = c.get('user');
+    routesLogger.info({ userId: user.id }, '[API /auth/tokens]');
+    const list = await db.query.apiTokens.findMany({
+      where: and(eq(apiTokens.userId, user.id), gt(apiTokens.expiresAt, new Date().toISOString())),
+      columns: {
+        id: true,
+        platform: true,
+        deviceName: true,
+        lastUsedAt: true,
+        createdAt: true,
+        expiresAt: true,
+      },
+      orderBy: desc(apiTokens.createdAt),
+    });
+    return c.json({ success: true, data: list });
+  },
+);
 
 // Bug #161: /auth/tokens 只读，无法注销。设备丢失/离职时用户必须能撤销自己的 token。
 // 仅允许撤销自己 userId 下的 token，避免越权。
@@ -823,10 +817,7 @@ app.post(
 // Next.js App Router API route body 上限 ~4.5MB；base64 膨胀约 4/3，限制为 4MB base64 ≈ 3MB 原图。
 const MAX_OCR_BASE64_BYTES = 4 * 1024 * 1024;
 const ocrSchema = z.object({
-  imageBase64: z
-    .string()
-    .min(1)
-    .max(MAX_OCR_BASE64_BYTES, '图片过大，请小于 4MB（base64 编码后）'),
+  imageBase64: z.string().min(1).max(MAX_OCR_BASE64_BYTES, '图片过大，请小于 4MB（base64 编码后）'),
   taskId: z.string().optional(),
 });
 
@@ -856,10 +847,7 @@ app.post(
       routesLogger.error({ userId: user.id, err: message }, '[API /essays/ocr] error');
       // Bug #7: OCR 未配置时返回 503，让前端能区分"服务未配置"和"调用失败"
       if (message.includes('OCR 服务未配置')) {
-        return c.json(
-          { success: false, error: 'OCR 服务暂未配置，请联系管理员' },
-          503,
-        );
+        return c.json({ success: false, error: 'OCR 服务暂未配置，请联系管理员' }, 503);
       }
       return c.json({ success: false, error: 'OCR 识别失败' }, 500);
     }
@@ -1030,10 +1018,7 @@ app.post(
     }
 
     if (essay.status !== 'failed') {
-      return c.json(
-        { success: false, error: `仅失败作文可重试，当前状态：${essay.status}` },
-        400,
-      );
+      return c.json({ success: false, error: `仅失败作文可重试，当前状态：${essay.status}` }, 400);
     }
 
     // Bug #141: 之前先 read 再 write 无原子保证，并发两次 retry 都会读到 'failed'
@@ -1048,10 +1033,7 @@ app.post(
       .returning({ id: essays.id });
 
     if (claim.length === 0) {
-      return c.json(
-        { success: false, error: '该作文已被其他操作重试或状态已变更' },
-        409,
-      );
+      return c.json({ success: false, error: '该作文已被其他操作重试或状态已变更' }, 409);
     }
 
     await addCorrectionJob(id);
@@ -1072,15 +1054,16 @@ app.get(
   rateLimit(1000, 24 * 60 * 60_000),
   authMiddleware,
   async (c) => {
-  const user = c.get('user');
-  const list = await db.query.essays.findMany({
-    where: eq(essays.studentId, user.id),
-    orderBy: desc(essays.createdAt),
-    limit: 50,
-    with: { correction: true },
-  });
-  return c.json({ success: true, data: list });
-});
+    const user = c.get('user');
+    const list = await db.query.essays.findMany({
+      where: eq(essays.studentId, user.id),
+      orderBy: desc(essays.createdAt),
+      limit: 50,
+      with: { correction: true },
+    });
+    return c.json({ success: true, data: list });
+  },
+);
 
 // Bug #249: 作文详情无 rateLimit；带 correction JOIN。
 app.get(
@@ -1089,32 +1072,33 @@ app.get(
   rateLimit(2000, 24 * 60 * 60_000),
   authMiddleware,
   async (c) => {
-  const user = c.get('user');
-  const id = c.req.param('id');
-  routesLogger.info({ userId: user.id, role: user.role, essayId: id }, '[API /essays/:id]');
-  const essay = await db.query.essays.findFirst({
-    where: eq(essays.id, id),
-    with: { correction: true, student: { columns: { id: true, schoolId: true } }, task: true },
-  });
-  if (!essay) return c.json({ success: false, error: 'Not found' }, 404);
+    const user = c.get('user');
+    const id = c.req.param('id');
+    routesLogger.info({ userId: user.id, role: user.role, essayId: id }, '[API /essays/:id]');
+    const essay = await db.query.essays.findFirst({
+      where: eq(essays.id, id),
+      with: { correction: true, student: { columns: { id: true, schoolId: true } }, task: true },
+    });
+    if (!essay) return c.json({ success: false, error: 'Not found' }, 404);
 
-  // Bug #162: 之前对 SCHOOL_ADMIN 走无条件 `user.role === UserRole.SCHOOL_ADMIN` 分支，
-  // 跨校可查看任意学生的作文（含批改内容）。改为与 /essays/:id/review 一致：
-  // SCHOOL_ADMIN 必须同校。Teacher 走 assertStudentAccess（校验所教班级）。
-  const canAccess =
-    essay.studentId === user.id ||
-    user.role === UserRole.SUPER_ADMIN ||
-    (user.role === UserRole.SCHOOL_ADMIN && essay.student?.schoolId === user.schoolId) ||
-    (user.role === UserRole.TEACHER && (await assertStudentAccess(user, essay.studentId)));
+    // Bug #162: 之前对 SCHOOL_ADMIN 走无条件 `user.role === UserRole.SCHOOL_ADMIN` 分支，
+    // 跨校可查看任意学生的作文（含批改内容）。改为与 /essays/:id/review 一致：
+    // SCHOOL_ADMIN 必须同校。Teacher 走 assertStudentAccess（校验所教班级）。
+    const canAccess =
+      essay.studentId === user.id ||
+      user.role === UserRole.SUPER_ADMIN ||
+      (user.role === UserRole.SCHOOL_ADMIN && essay.student?.schoolId === user.schoolId) ||
+      (user.role === UserRole.TEACHER && (await assertStudentAccess(user, essay.studentId)));
 
-  if (!canAccess) {
-    routesLogger.warn({ userId: user.id, essayId: id }, '[API /essays/:id] access denied');
-    return c.json({ success: false, error: '无权查看' }, 403);
-  }
+    if (!canAccess) {
+      routesLogger.warn({ userId: user.id, essayId: id }, '[API /essays/:id] access denied');
+      return c.json({ success: false, error: '无权查看' }, 403);
+    }
 
-  routesLogger.info({ userId: user.id, essayId: id }, '[API /essays/:id] access granted');
-  return c.json({ success: true, data: essay });
-});
+    routesLogger.info({ userId: user.id, essayId: id }, '[API /essays/:id] access granted');
+    return c.json({ success: true, data: essay });
+  },
+);
 
 // Bug #250: 批改结果详情无 rateLimit。
 app.get(
@@ -1123,44 +1107,45 @@ app.get(
   rateLimit(2000, 24 * 60 * 60_000),
   authMiddleware,
   async (c) => {
-  const user = c.get('user');
-  const id = c.req.param('id');
-  routesLogger.info(
-    { userId: user.id, role: user.role, essayId: id },
-    '[API /essays/:id/correction]',
-  );
-  const essay = await db.query.essays.findFirst({
-    where: eq(essays.id, id),
-    with: { correction: true, student: { columns: { id: true, schoolId: true } } },
-  });
-  if (!essay) {
-    routesLogger.warn({ id: id }, '[API /essays/:id/correction] essay not found');
-    return c.json({ success: false, error: 'Not found' }, 404);
-  }
-
-  // Bug #162: 同样的跨校 IDOR 修复，与 /essays/:id 一致。
-  const canAccess =
-    essay.studentId === user.id ||
-    user.role === UserRole.SUPER_ADMIN ||
-    (user.role === UserRole.SCHOOL_ADMIN && essay.student?.schoolId === user.schoolId) ||
-    (user.role === UserRole.TEACHER && (await assertStudentAccess(user, essay.studentId)));
-
-  if (!canAccess) {
-    routesLogger.warn(
-      { userId: user.id, essayId: id },
-      '[API /essays/:id/correction] access denied',
+    const user = c.get('user');
+    const id = c.req.param('id');
+    routesLogger.info(
+      { userId: user.id, role: user.role, essayId: id },
+      '[API /essays/:id/correction]',
     );
-    return c.json({ success: false, error: '无权查看' }, 403);
-  }
+    const essay = await db.query.essays.findFirst({
+      where: eq(essays.id, id),
+      with: { correction: true, student: { columns: { id: true, schoolId: true } } },
+    });
+    if (!essay) {
+      routesLogger.warn({ id: id }, '[API /essays/:id/correction] essay not found');
+      return c.json({ success: false, error: 'Not found' }, 404);
+    }
 
-  if (!essay.correction) {
-    routesLogger.info({ essayId: id }, '[API /essays/:id/correction] no correction yet');
-    return c.json({ success: false, error: '批改结果尚未生成' }, 404);
-  }
+    // Bug #162: 同样的跨校 IDOR 修复，与 /essays/:id 一致。
+    const canAccess =
+      essay.studentId === user.id ||
+      user.role === UserRole.SUPER_ADMIN ||
+      (user.role === UserRole.SCHOOL_ADMIN && essay.student?.schoolId === user.schoolId) ||
+      (user.role === UserRole.TEACHER && (await assertStudentAccess(user, essay.studentId)));
 
-  routesLogger.info({ essayId: id }, '[API /essays/:id/correction] returning correction');
-  return c.json({ success: true, data: essay.correction });
-});
+    if (!canAccess) {
+      routesLogger.warn(
+        { userId: user.id, essayId: id },
+        '[API /essays/:id/correction] access denied',
+      );
+      return c.json({ success: false, error: '无权查看' }, 403);
+    }
+
+    if (!essay.correction) {
+      routesLogger.info({ essayId: id }, '[API /essays/:id/correction] no correction yet');
+      return c.json({ success: false, error: '批改结果尚未生成' }, 404);
+    }
+
+    routesLogger.info({ essayId: id }, '[API /essays/:id/correction] returning correction');
+    return c.json({ success: true, data: essay.correction });
+  },
+);
 
 const essayReviewSchema = z
   .object({
@@ -1334,21 +1319,25 @@ app.get(
   rateLimit(2000, 24 * 60 * 60_000),
   authMiddleware,
   async (c) => {
-  const user = c.get('user');
-  const id = c.req.param('id');
-  const task = await db.query.essayTasks.findFirst({ where: eq(essayTasks.id, id) });
-  if (!task) return c.json({ success: false, error: 'Not found' }, 404);
-  // 学生只能查看自己所在班级的任务；教师/管理员需有该班级访问权。
-  if (user.role === UserRole.STUDENT) {
-    const enrolled = await db.query.classEnrollments.findFirst({
-      where: and(eq(classEnrollments.classId, task.classId), eq(classEnrollments.userId, user.id)),
-    });
-    if (!enrolled) return c.json({ success: false, error: '无权访问' }, 403);
-  } else if (!(await assertClassAccess(user, task.classId))) {
-    return c.json({ success: false, error: '无权访问' }, 403);
-  }
-  return c.json({ success: true, data: task });
-});
+    const user = c.get('user');
+    const id = c.req.param('id');
+    const task = await db.query.essayTasks.findFirst({ where: eq(essayTasks.id, id) });
+    if (!task) return c.json({ success: false, error: 'Not found' }, 404);
+    // 学生只能查看自己所在班级的任务；教师/管理员需有该班级访问权。
+    if (user.role === UserRole.STUDENT) {
+      const enrolled = await db.query.classEnrollments.findFirst({
+        where: and(
+          eq(classEnrollments.classId, task.classId),
+          eq(classEnrollments.userId, user.id),
+        ),
+      });
+      if (!enrolled) return c.json({ success: false, error: '无权访问' }, 403);
+    } else if (!(await assertClassAccess(user, task.classId))) {
+      return c.json({ success: false, error: '无权访问' }, 403);
+    }
+    return c.json({ success: true, data: task });
+  },
+);
 
 const taskSchema = z
   .object({
@@ -1570,24 +1559,25 @@ app.get(
   authMiddleware,
   requireRole(UserRole.TEACHER),
   async (c) => {
-  const user = c.get('user');
-  routesLogger.info({ userId: user.id }, '[API /teacher/classes]');
+    const user = c.get('user');
+    routesLogger.info({ userId: user.id }, '[API /teacher/classes]');
 
-  const myClasses = await db.query.classes.findMany({
-    where: eq(classes.teacherId, user.id),
-    with: { enrollments: true },
-  });
+    const myClasses = await db.query.classes.findMany({
+      where: eq(classes.teacherId, user.id),
+      with: { enrollments: true },
+    });
 
-  const classStats = myClasses.map((cls) => ({
-    id: cls.id,
-    name: cls.name,
-    grade: cls.grade,
-    studentCount: (cls.enrollments ?? []).filter((e) => e.role === 'student').length,
-  }));
+    const classStats = myClasses.map((cls) => ({
+      id: cls.id,
+      name: cls.name,
+      grade: cls.grade,
+      studentCount: (cls.enrollments ?? []).filter((e) => e.role === 'student').length,
+    }));
 
-  routesLogger.info({ userId: user.id, returning: classStats.length }, '[API /teacher/classes]');
-  return c.json({ success: true, data: classStats });
-});
+    routesLogger.info({ userId: user.id, returning: classStats.length }, '[API /teacher/classes]');
+    return c.json({ success: true, data: classStats });
+  },
+);
 
 // ========== Teacher Dashboard ==========
 // Bug #230: 教师 dashboard 已有 60s memoize 缓存，但首次命中仍是多表 JOIN，限流防刷。
@@ -1598,80 +1588,82 @@ app.get(
   authMiddleware,
   requireRole(UserRole.TEACHER),
   async (c) => {
-  const user = c.get('user');
-  routesLogger.info({ userId: user.id }, '[API /teacher/dashboard]');
+    const user = c.get('user');
+    routesLogger.info({ userId: user.id }, '[API /teacher/dashboard]');
 
-  const data = await memoizeAsync(`teacher_dash:${user.id}`, 60_000, async () => {
-    const myClasses = await db.query.classes.findMany({
-      where: eq(classes.teacherId, user.id),
-      with: { enrollments: true },
+    const data = await memoizeAsync(`teacher_dash:${user.id}`, 60_000, async () => {
+      const myClasses = await db.query.classes.findMany({
+        where: eq(classes.teacherId, user.id),
+        with: { enrollments: true },
+      });
+
+      const classIds = myClasses.map((cls) => cls.id);
+      const allEnrollments = myClasses.flatMap((cls) => cls.enrollments ?? []);
+      const studentIds = allEnrollments.filter((e) => e.role === 'student').map((e) => e.userId);
+
+      const [recentTasks, recentEssays] = await Promise.all([
+        db.query.essayTasks.findMany({
+          where: classIds.length > 0 ? inArray(essayTasks.classId, classIds) : undefined,
+          orderBy: desc(essayTasks.createdAt),
+          limit: 5,
+        }),
+        studentIds.length > 0
+          ? db.query.essays.findMany({
+              where: inArray(essays.studentId, studentIds),
+              orderBy: desc(essays.createdAt),
+              limit: 10,
+              with: {
+                student: { columns: { id: true, name: true, studentNo: true } },
+                task: true,
+                correction: true,
+              },
+            })
+          : Promise.resolve([]),
+      ]);
+
+      const pendingEssays = recentEssays.filter(
+        (e) => e.status === 'pending' || e.status === 'correcting',
+      ).length;
+      const completedEssays = recentEssays.filter((e) => e.status === 'completed');
+      const averageScore =
+        completedEssays.length > 0
+          ? completedEssays.reduce((sum, e) => sum + (e.totalScore ?? 0), 0) /
+            completedEssays.length
+          : null;
+
+      const classStats = myClasses.map((cls) => ({
+        id: cls.id,
+        name: cls.name,
+        grade: cls.grade,
+        studentCount: (cls.enrollments ?? []).filter((e) => e.role === 'student').length,
+      }));
+
+      routesLogger.info(
+        {
+          userId: user.id,
+          classes: myClasses.length,
+          students: studentIds.length,
+          pending: pendingEssays,
+        },
+        '[API /teacher/dashboard]',
+      );
+
+      return {
+        stats: {
+          totalClasses: myClasses.length,
+          totalStudents: studentIds.length,
+          pendingEssays,
+          averageScore,
+        },
+        classes: classStats,
+        recentTasks,
+        recentEssays,
+      };
     });
 
-    const classIds = myClasses.map((cls) => cls.id);
-    const allEnrollments = myClasses.flatMap((cls) => cls.enrollments ?? []);
-    const studentIds = allEnrollments.filter((e) => e.role === 'student').map((e) => e.userId);
-
-    const [recentTasks, recentEssays] = await Promise.all([
-      db.query.essayTasks.findMany({
-        where: classIds.length > 0 ? inArray(essayTasks.classId, classIds) : undefined,
-        orderBy: desc(essayTasks.createdAt),
-        limit: 5,
-      }),
-      studentIds.length > 0
-        ? db.query.essays.findMany({
-            where: inArray(essays.studentId, studentIds),
-            orderBy: desc(essays.createdAt),
-            limit: 10,
-            with: {
-              student: { columns: { id: true, name: true, studentNo: true } },
-              task: true,
-              correction: true,
-            },
-          })
-        : Promise.resolve([]),
-    ]);
-
-    const pendingEssays = recentEssays.filter(
-      (e) => e.status === 'pending' || e.status === 'correcting',
-    ).length;
-    const completedEssays = recentEssays.filter((e) => e.status === 'completed');
-    const averageScore =
-      completedEssays.length > 0
-        ? completedEssays.reduce((sum, e) => sum + (e.totalScore ?? 0), 0) / completedEssays.length
-        : null;
-
-    const classStats = myClasses.map((cls) => ({
-      id: cls.id,
-      name: cls.name,
-      grade: cls.grade,
-      studentCount: (cls.enrollments ?? []).filter((e) => e.role === 'student').length,
-    }));
-
-    routesLogger.info(
-      {
-        userId: user.id,
-        classes: myClasses.length,
-        students: studentIds.length,
-        pending: pendingEssays,
-      },
-      '[API /teacher/dashboard]',
-    );
-
-    return {
-      stats: {
-        totalClasses: myClasses.length,
-        totalStudents: studentIds.length,
-        pendingEssays,
-        averageScore,
-      },
-      classes: classStats,
-      recentTasks,
-      recentEssays,
-    };
-  });
-
-  return c.json({ success: true, data });
-});
+    return c.json({ success: true, data });
+  },
+);
 
 // ========== Teacher Analytics ==========
 app.get(
@@ -2257,10 +2249,7 @@ app.post(
     }
     const lines = csv.trim().split(/\r?\n/);
     if (lines.length > 1001) {
-      return c.json(
-        { success: false, error: '单次最多导入 1000 名学生，请拆成多次' },
-        400,
-      );
+      return c.json({ success: false, error: '单次最多导入 1000 名学生，请拆成多次' }, 400);
     }
 
     const cls = await db.query.classes.findFirst({ where: eq(classes.id, classId) });
@@ -2546,14 +2535,11 @@ app.post(
           .select({ id: teachingResources.id })
           .from(teachingResources)
           .where(
-            and(
-              eq(teachingResources.type, data.type),
-              eq(teachingResources.title, data.title),
-            ),
+            and(eq(teachingResources.type, data.type), eq(teachingResources.title, data.title)),
           )
           .limit(1);
         if (existingRows.length > 0) {
-          return { resource: null, duplicate: { id: existingRows[0]!.id } } as const;
+          return { resource: null, duplicate: { id: existingRows[0]?.id } } as const;
         }
         const [row] = await tx
           .insert(teachingResources)
@@ -2910,67 +2896,68 @@ app.get(
   authMiddleware,
   requireRole(UserRole.STUDENT),
   async (c) => {
-  const user = c.get('user');
-  const start = Date.now();
-  routesLogger.info({ userId: user.id }, '[API /student/errors]');
-  const now = Date.now();
-  const lastSync = studentErrorSyncCache.get(user.id) ?? 0;
-  if (now - lastSync >= STUDENT_ERROR_SYNC_TTL_MS) {
-    await syncStudentErrorBook(user.id);
-    studentErrorSyncCache.set(user.id, now);
-  }
-  const all = await db.query.errorBooks.findMany({
-    where: eq(errorBooks.studentId, user.id),
-    orderBy: desc(errorBooks.createdAt),
-  });
-  const groupMap = new Map<
-    string,
-    {
-      total: number;
-      unresolved: number;
-      mastered: number;
-      latestOriginal: string;
-      latestCorrected: string;
-      latestCreatedAt: string;
+    const user = c.get('user');
+    const start = Date.now();
+    routesLogger.info({ userId: user.id }, '[API /student/errors]');
+    const now = Date.now();
+    const lastSync = studentErrorSyncCache.get(user.id) ?? 0;
+    if (now - lastSync >= STUDENT_ERROR_SYNC_TTL_MS) {
+      await syncStudentErrorBook(user.id);
+      studentErrorSyncCache.set(user.id, now);
     }
-  >();
-  for (const e of all) {
-    let g = groupMap.get(e.errorType);
-    if (!g) {
-      g = {
-        total: 0,
-        unresolved: 0,
-        mastered: 0,
-        latestOriginal: '',
-        latestCorrected: '',
-        latestCreatedAt: '',
-      };
-      groupMap.set(e.errorType, g);
+    const all = await db.query.errorBooks.findMany({
+      where: eq(errorBooks.studentId, user.id),
+      orderBy: desc(errorBooks.createdAt),
+    });
+    const groupMap = new Map<
+      string,
+      {
+        total: number;
+        unresolved: number;
+        mastered: number;
+        latestOriginal: string;
+        latestCorrected: string;
+        latestCreatedAt: string;
+      }
+    >();
+    for (const e of all) {
+      let g = groupMap.get(e.errorType);
+      if (!g) {
+        g = {
+          total: 0,
+          unresolved: 0,
+          mastered: 0,
+          latestOriginal: '',
+          latestCorrected: '',
+          latestCreatedAt: '',
+        };
+        groupMap.set(e.errorType, g);
+      }
+      g.total++;
+      if (e.status === 'mastered') g.mastered++;
+      else g.unresolved++;
+      if (e.createdAt > g.latestCreatedAt) {
+        g.latestCreatedAt = e.createdAt;
+        g.latestOriginal = e.original;
+        g.latestCorrected = e.corrected;
+      }
     }
-    g.total++;
-    if (e.status === 'mastered') g.mastered++;
-    else g.unresolved++;
-    if (e.createdAt > g.latestCreatedAt) {
-      g.latestCreatedAt = e.createdAt;
-      g.latestOriginal = e.original;
-      g.latestCorrected = e.corrected;
-    }
-  }
-  const groups: ErrorBookGroup[] = Array.from(groupMap.entries()).map(([errorType, g]) => ({
-    errorType,
-    total: g.total,
-    unresolved: g.unresolved,
-    mastered: g.mastered,
-    latestOriginal: g.latestOriginal,
-    latestCorrected: g.latestCorrected,
-  }));
-  const duration = Date.now() - start;
-  routesLogger.info(
-    { userId: user.id, groups: groups.length, duration: duration },
-    '[API /student/errors]',
-  );
-  return c.json({ success: true, data: groups });
-});
+    const groups: ErrorBookGroup[] = Array.from(groupMap.entries()).map(([errorType, g]) => ({
+      errorType,
+      total: g.total,
+      unresolved: g.unresolved,
+      mastered: g.mastered,
+      latestOriginal: g.latestOriginal,
+      latestCorrected: g.latestCorrected,
+    }));
+    const duration = Date.now() - start;
+    routesLogger.info(
+      { userId: user.id, groups: groups.length, duration: duration },
+      '[API /student/errors]',
+    );
+    return c.json({ success: true, data: groups });
+  },
+);
 
 app.post(
   '/student/errors/sync',
@@ -3049,22 +3036,23 @@ app.get(
   authMiddleware,
   requireRole(UserRole.STUDENT),
   async (c) => {
-  const user = c.get('user');
-  const type = c.req.param('type');
-  const offset = parseNonNegativeInt(c.req.query('offset'), 0);
-  const limit = parsePositiveInt(c.req.query('limit'), 20, 100);
-  routesLogger.info(
-    { userId: user.id, type: type, offset: offset, limit: limit },
-    '[API /student/errors/:type]',
-  );
-  const list = await db.query.errorBooks.findMany({
-    where: and(eq(errorBooks.studentId, user.id), eq(errorBooks.errorType, type)),
-    orderBy: desc(errorBooks.createdAt),
-    offset,
-    limit,
-  });
-  return c.json({ success: true, data: list });
-});
+    const user = c.get('user');
+    const type = c.req.param('type');
+    const offset = parseNonNegativeInt(c.req.query('offset'), 0);
+    const limit = parsePositiveInt(c.req.query('limit'), 20, 100);
+    routesLogger.info(
+      { userId: user.id, type: type, offset: offset, limit: limit },
+      '[API /student/errors/:type]',
+    );
+    const list = await db.query.errorBooks.findMany({
+      where: and(eq(errorBooks.studentId, user.id), eq(errorBooks.errorType, type)),
+      orderBy: desc(errorBooks.createdAt),
+      offset,
+      limit,
+    });
+    return c.json({ success: true, data: list });
+  },
+);
 
 // Bug #191: 标"掌握"无 rateLimit，脚本可无限点击错题本制造 update 风暴。
 // 限制 10/min + 200/day（与 /student/drafts 一致）。
@@ -3337,36 +3325,37 @@ app.get(
   authMiddleware,
   requireRole(UserRole.STUDENT),
   async (c) => {
-  const user = c.get('user');
-  const offset = parseNonNegativeInt(c.req.query('offset'), 0);
-  const limit = parsePositiveInt(c.req.query('limit'), 20, 100);
-  const mode = c.req.query('mode');
-  routesLogger.info(
-    { userId: user.id, offset: offset, limit: limit, mode: mode ?? 'all' },
-    '[API /student/ai/history]',
-  );
-  const conditions = [eq(aiConversations.studentId, user.id)];
-  if (mode) conditions.push(eq(aiConversations.mode, mode));
-  const rows = await db.query.aiConversations.findMany({
-    where: and(...conditions),
-    orderBy: desc(aiConversations.createdAt),
-    offset,
-    limit,
-  });
-  const data: AiConversation[] = rows.map((r) => ({
-    id: r.id,
-    studentId: r.studentId,
-    mode: r.mode as AiConversation['mode'],
-    inputText: r.inputText,
-    outputText: r.outputText,
-    metadata: safeJsonObject(r.metadata),
-    aiProvider: r.aiProvider,
-    aiModel: r.aiModel,
-    tokensUsed: r.tokensUsed,
-    createdAt: r.createdAt,
-  }));
-  return c.json({ success: true, data });
-});
+    const user = c.get('user');
+    const offset = parseNonNegativeInt(c.req.query('offset'), 0);
+    const limit = parsePositiveInt(c.req.query('limit'), 20, 100);
+    const mode = c.req.query('mode');
+    routesLogger.info(
+      { userId: user.id, offset: offset, limit: limit, mode: mode ?? 'all' },
+      '[API /student/ai/history]',
+    );
+    const conditions = [eq(aiConversations.studentId, user.id)];
+    if (mode) conditions.push(eq(aiConversations.mode, mode));
+    const rows = await db.query.aiConversations.findMany({
+      where: and(...conditions),
+      orderBy: desc(aiConversations.createdAt),
+      offset,
+      limit,
+    });
+    const data: AiConversation[] = rows.map((r) => ({
+      id: r.id,
+      studentId: r.studentId,
+      mode: r.mode as AiConversation['mode'],
+      inputText: r.inputText,
+      outputText: r.outputText,
+      metadata: safeJsonObject(r.metadata),
+      aiProvider: r.aiProvider,
+      aiModel: r.aiModel,
+      tokensUsed: r.tokensUsed,
+      createdAt: r.createdAt,
+    }));
+    return c.json({ success: true, data });
+  },
+);
 
 // ========== Student Practice ==========
 // Bug #241: 题库列表无 rateLimit。
@@ -3377,42 +3366,43 @@ app.get(
   authMiddleware,
   requireRole(UserRole.STUDENT),
   async (c) => {
-  const user = c.get('user');
-  const topicType = c.req.query('topicType');
-  const difficulty = c.req.query('difficulty');
-  const offset = parseNonNegativeInt(c.req.query('offset'), 0);
-  const limit = parsePositiveInt(c.req.query('limit'), 20, 100);
-  routesLogger.info(
-    { userId: user.id, topicType: topicType ?? 'all', difficulty: difficulty ?? 'all' },
-    '[API /student/question-bank]',
-  );
-  const conditions = [eq(questionBank.isPublic, 1)];
-  if (topicType) conditions.push(eq(questionBank.topicType, topicType));
-  if (difficulty) conditions.push(eq(questionBank.difficulty, difficulty));
-  const rows = await db.query.questionBank.findMany({
-    where: and(...conditions),
-    orderBy: desc(questionBank.createdAt),
-    offset,
-    limit,
-  });
-  const data: QuestionBankItem[] = rows.map((r) => ({
-    id: r.id,
-    topicType: r.topicType,
-    topicCategory: r.topicCategory,
-    title: r.title,
-    requirements: r.requirements,
-    keyPoints: safeJsonArray(r.keyPoints),
-    referenceEssay: r.referenceEssay,
-    wordLimitMin: r.wordLimitMin,
-    wordLimitMax: r.wordLimitMax,
-    timeLimitMinutes: r.timeLimitMinutes,
-    difficulty: r.difficulty as QuestionBankItem['difficulty'],
-    source: r.source,
-    createdAt: r.createdAt,
-    updatedAt: r.updatedAt,
-  }));
-  return c.json({ success: true, data });
-});
+    const user = c.get('user');
+    const topicType = c.req.query('topicType');
+    const difficulty = c.req.query('difficulty');
+    const offset = parseNonNegativeInt(c.req.query('offset'), 0);
+    const limit = parsePositiveInt(c.req.query('limit'), 20, 100);
+    routesLogger.info(
+      { userId: user.id, topicType: topicType ?? 'all', difficulty: difficulty ?? 'all' },
+      '[API /student/question-bank]',
+    );
+    const conditions = [eq(questionBank.isPublic, 1)];
+    if (topicType) conditions.push(eq(questionBank.topicType, topicType));
+    if (difficulty) conditions.push(eq(questionBank.difficulty, difficulty));
+    const rows = await db.query.questionBank.findMany({
+      where: and(...conditions),
+      orderBy: desc(questionBank.createdAt),
+      offset,
+      limit,
+    });
+    const data: QuestionBankItem[] = rows.map((r) => ({
+      id: r.id,
+      topicType: r.topicType,
+      topicCategory: r.topicCategory,
+      title: r.title,
+      requirements: r.requirements,
+      keyPoints: safeJsonArray(r.keyPoints),
+      referenceEssay: r.referenceEssay,
+      wordLimitMin: r.wordLimitMin,
+      wordLimitMax: r.wordLimitMax,
+      timeLimitMinutes: r.timeLimitMinutes,
+      difficulty: r.difficulty as QuestionBankItem['difficulty'],
+      source: r.source,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    }));
+    return c.json({ success: true, data });
+  },
+);
 
 // Bug #242: 题库详情无 rateLimit。
 app.get(
@@ -3422,33 +3412,34 @@ app.get(
   authMiddleware,
   requireRole(UserRole.STUDENT),
   async (c) => {
-  const user = c.get('user');
-  const id = c.req.param('id');
-  routesLogger.info({ userId: user.id, id: id }, '[API /student/question-bank/:id]');
-  // Bug #160: 之前不校验 isPublic，未来若 admin 创建私有题目（题库编辑权限），
-  // 学生可直接 GET 私有题。防御性加上 isPublic=1 过滤。
-  const r = await db.query.questionBank.findFirst({
-    where: and(eq(questionBank.id, id), eq(questionBank.isPublic, 1)),
-  });
-  if (!r) return c.json({ success: false, error: '题目不存在' }, 404);
-  const data: QuestionBankItem = {
-    id: r.id,
-    topicType: r.topicType,
-    topicCategory: r.topicCategory,
-    title: r.title,
-    requirements: r.requirements,
-    keyPoints: safeJsonArray(r.keyPoints),
-    referenceEssay: r.referenceEssay,
-    wordLimitMin: r.wordLimitMin,
-    wordLimitMax: r.wordLimitMax,
-    timeLimitMinutes: r.timeLimitMinutes,
-    difficulty: r.difficulty as QuestionBankItem['difficulty'],
-    source: r.source,
-    createdAt: r.createdAt,
-    updatedAt: r.updatedAt,
-  };
-  return c.json({ success: true, data });
-});
+    const user = c.get('user');
+    const id = c.req.param('id');
+    routesLogger.info({ userId: user.id, id: id }, '[API /student/question-bank/:id]');
+    // Bug #160: 之前不校验 isPublic，未来若 admin 创建私有题目（题库编辑权限），
+    // 学生可直接 GET 私有题。防御性加上 isPublic=1 过滤。
+    const r = await db.query.questionBank.findFirst({
+      where: and(eq(questionBank.id, id), eq(questionBank.isPublic, 1)),
+    });
+    if (!r) return c.json({ success: false, error: '题目不存在' }, 404);
+    const data: QuestionBankItem = {
+      id: r.id,
+      topicType: r.topicType,
+      topicCategory: r.topicCategory,
+      title: r.title,
+      requirements: r.requirements,
+      keyPoints: safeJsonArray(r.keyPoints),
+      referenceEssay: r.referenceEssay,
+      wordLimitMin: r.wordLimitMin,
+      wordLimitMax: r.wordLimitMax,
+      timeLimitMinutes: r.timeLimitMinutes,
+      difficulty: r.difficulty as QuestionBankItem['difficulty'],
+      source: r.source,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    };
+    return c.json({ success: true, data });
+  },
+);
 
 const practiceBodySchema = z.object({
   questionId: z.string().optional(),
@@ -3574,39 +3565,40 @@ app.get(
   authMiddleware,
   requireRole(UserRole.STUDENT),
   async (c) => {
-  const user = c.get('user');
-  const offset = parseNonNegativeInt(c.req.query('offset'), 0);
-  const limit = parsePositiveInt(c.req.query('limit'), 20, 100);
-  routesLogger.info(
-    { userId: user.id, offset: offset, limit: limit },
-    '[API /student/practice/history]',
-  );
-  const rows = await db.query.practiceExercises.findMany({
-    where: eq(practiceExercises.studentId, user.id),
-    orderBy: desc(practiceExercises.createdAt),
-    offset,
-    limit,
-  });
-  const data: PracticeExercise[] = rows.map((r) => ({
-    id: r.id,
-    studentId: r.studentId,
-    exerciseType: r.exerciseType as PracticeExercise['exerciseType'],
-    questionId: r.questionId,
-    topicType: r.topicType,
-    title: r.title,
-    content: r.content,
-    wordCount: r.wordCount,
-    score: r.score,
-    scoreTier: r.scoreTier,
-    aiFeedback: safeJsonObject(r.aiFeedback),
-    durationMs: r.durationMs,
-    status: r.status,
-    startedAt: r.startedAt,
-    submittedAt: r.submittedAt,
-    createdAt: r.createdAt,
-  }));
-  return c.json({ success: true, data });
-});
+    const user = c.get('user');
+    const offset = parseNonNegativeInt(c.req.query('offset'), 0);
+    const limit = parsePositiveInt(c.req.query('limit'), 20, 100);
+    routesLogger.info(
+      { userId: user.id, offset: offset, limit: limit },
+      '[API /student/practice/history]',
+    );
+    const rows = await db.query.practiceExercises.findMany({
+      where: eq(practiceExercises.studentId, user.id),
+      orderBy: desc(practiceExercises.createdAt),
+      offset,
+      limit,
+    });
+    const data: PracticeExercise[] = rows.map((r) => ({
+      id: r.id,
+      studentId: r.studentId,
+      exerciseType: r.exerciseType as PracticeExercise['exerciseType'],
+      questionId: r.questionId,
+      topicType: r.topicType,
+      title: r.title,
+      content: r.content,
+      wordCount: r.wordCount,
+      score: r.score,
+      scoreTier: r.scoreTier,
+      aiFeedback: safeJsonObject(r.aiFeedback),
+      durationMs: r.durationMs,
+      status: r.status,
+      startedAt: r.startedAt,
+      submittedAt: r.submittedAt,
+      createdAt: r.createdAt,
+    }));
+    return c.json({ success: true, data });
+  },
+);
 
 // ========== Student Progress ==========
 // Bug #244: 学生进度无 rateLimit；多表 JOIN 跑全量作文。
@@ -3617,108 +3609,111 @@ app.get(
   authMiddleware,
   requireRole(UserRole.STUDENT),
   async (c) => {
-  const user = c.get('user');
-  const start = Date.now();
-  routesLogger.info({ userId: user.id }, '[API /student/progress]');
-  // Bug #119: 之前硬编码 limit:200，活跃学生单次拉满 200 条作文会触发深 N+1（每条带
-  // correction JOIN），且响应体过大。这里维持 200 上限（满足进度曲线/雷达图的统计
-  // 需求），但加上明确注释并按 completedAt 倒序；后续可改为分页 / 物化视图。
-  const studentEssays = await db.query.essays.findMany({
-    where: eq(essays.studentId, user.id),
-    with: { correction: true },
-    orderBy: desc(essays.createdAt),
-    limit: 200,
-  });
-  const completedEssays = studentEssays.filter((e) => e.status === 'completed');
-  const allScores = completedEssays.map((e) => e.totalScore).filter((s): s is number => s !== null);
-  const averageScore =
-    allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : null;
-  const radarData = calculateAbilityRadar(
-    completedEssays.map((e) => ({
-      topicAdherenceScore: e.correction?.topicAdherenceScore ?? null,
-      contentScore: e.correction?.contentScore ?? null,
-      languageScore: e.correction?.languageScore ?? null,
-      structureScore: e.correction?.structureScore ?? null,
-      presentationScore: e.correction?.presentationScore ?? null,
-    })),
-  );
-  const progressCurve = calculateProgressCurve(
-    completedEssays.map((e) => ({
-      totalScore: e.totalScore,
-      submittedAt: e.submittedAt,
-    })),
-  );
-  const earnedAchievements = await db.query.achievements.findMany({
-    where: eq(achievements.studentId, user.id),
-  });
-  let rank: { classRank: number; total: number; percentile: number } | null = null;
-  const myEnrollments = await db.query.classEnrollments.findMany({
-    where: and(eq(classEnrollments.userId, user.id), eq(classEnrollments.role, 'student')),
-    columns: { classId: true },
-  });
-  if (myEnrollments.length > 0 && averageScore !== null) {
-    const classId = myEnrollments[0].classId;
-    const peerEnrollments = await db.query.classEnrollments.findMany({
-      where: and(eq(classEnrollments.classId, classId), eq(classEnrollments.role, 'student')),
-      columns: { userId: true },
+    const user = c.get('user');
+    const start = Date.now();
+    routesLogger.info({ userId: user.id }, '[API /student/progress]');
+    // Bug #119: 之前硬编码 limit:200，活跃学生单次拉满 200 条作文会触发深 N+1（每条带
+    // correction JOIN），且响应体过大。这里维持 200 上限（满足进度曲线/雷达图的统计
+    // 需求），但加上明确注释并按 completedAt 倒序；后续可改为分页 / 物化视图。
+    const studentEssays = await db.query.essays.findMany({
+      where: eq(essays.studentId, user.id),
+      with: { correction: true },
+      orderBy: desc(essays.createdAt),
+      limit: 200,
     });
-    const peerIds = peerEnrollments.map((e) => e.userId).filter((id) => id !== user.id);
-    if (peerIds.length > 0) {
-      const peerEssays = await db.query.essays.findMany({
-        where: and(inArray(essays.studentId, peerIds), eq(essays.status, 'completed')),
-        columns: { studentId: true, totalScore: true },
+    const completedEssays = studentEssays.filter((e) => e.status === 'completed');
+    const allScores = completedEssays
+      .map((e) => e.totalScore)
+      .filter((s): s is number => s !== null);
+    const averageScore =
+      allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : null;
+    const radarData = calculateAbilityRadar(
+      completedEssays.map((e) => ({
+        topicAdherenceScore: e.correction?.topicAdherenceScore ?? null,
+        contentScore: e.correction?.contentScore ?? null,
+        languageScore: e.correction?.languageScore ?? null,
+        structureScore: e.correction?.structureScore ?? null,
+        presentationScore: e.correction?.presentationScore ?? null,
+      })),
+    );
+    const progressCurve = calculateProgressCurve(
+      completedEssays.map((e) => ({
+        totalScore: e.totalScore,
+        submittedAt: e.submittedAt,
+      })),
+    );
+    const earnedAchievements = await db.query.achievements.findMany({
+      where: eq(achievements.studentId, user.id),
+    });
+    let rank: { classRank: number; total: number; percentile: number } | null = null;
+    const myEnrollments = await db.query.classEnrollments.findMany({
+      where: and(eq(classEnrollments.userId, user.id), eq(classEnrollments.role, 'student')),
+      columns: { classId: true },
+    });
+    if (myEnrollments.length > 0 && averageScore !== null) {
+      const classId = myEnrollments[0].classId;
+      const peerEnrollments = await db.query.classEnrollments.findMany({
+        where: and(eq(classEnrollments.classId, classId), eq(classEnrollments.role, 'student')),
+        columns: { userId: true },
       });
-      const peerAvgMap = new Map<string, number[]>();
-      for (const e of peerEssays) {
-        if (e.totalScore === null) continue;
-        let arr = peerAvgMap.get(e.studentId);
-        if (!arr) {
-          arr = [];
-          peerAvgMap.set(e.studentId, arr);
+      const peerIds = peerEnrollments.map((e) => e.userId).filter((id) => id !== user.id);
+      if (peerIds.length > 0) {
+        const peerEssays = await db.query.essays.findMany({
+          where: and(inArray(essays.studentId, peerIds), eq(essays.status, 'completed')),
+          columns: { studentId: true, totalScore: true },
+        });
+        const peerAvgMap = new Map<string, number[]>();
+        for (const e of peerEssays) {
+          if (e.totalScore === null) continue;
+          let arr = peerAvgMap.get(e.studentId);
+          if (!arr) {
+            arr = [];
+            peerAvgMap.set(e.studentId, arr);
+          }
+          arr.push(e.totalScore);
         }
-        arr.push(e.totalScore);
+        const peerAverages = Array.from(peerAvgMap.values()).map(
+          (arr) => arr.reduce((a, b) => a + b, 0) / arr.length,
+        );
+        rank = calculateClassRank(averageScore, peerAverages);
       }
-      const peerAverages = Array.from(peerAvgMap.values()).map(
-        (arr) => arr.reduce((a, b) => a + b, 0) / arr.length,
-      );
-      rank = calculateClassRank(averageScore, peerAverages);
     }
-  }
-  const level: StudentProgress['level'] =
-    averageScore === null
-      ? 'basic'
-      : averageScore < 9
+    const level: StudentProgress['level'] =
+      averageScore === null
         ? 'basic'
-        : averageScore < 12
-          ? 'improving'
-          : 'advanced';
-  const data: StudentProgress = {
-    studentId: user.id,
-    totalEssays: completedEssays.length,
-    averageScore,
-    radarData,
-    progressCurve,
-    achievements: earnedAchievements.map((a) => ({
-      id: a.id,
-      studentId: a.studentId,
-      code: a.code,
-      tier: a.tier as Achievement['tier'],
-      title: a.title,
-      description: a.description,
-      icon: a.icon,
-      earnedAt: a.earnedAt,
-      isUnlocked: true,
-    })),
-    rank,
-    level,
-  };
-  const duration = Date.now() - start;
-  routesLogger.info(
-    { userId: user.id, essays: completedEssays.length, duration: duration },
-    '[API /student/progress]',
-  );
-  return c.json({ success: true, data });
-});
+        : averageScore < 9
+          ? 'basic'
+          : averageScore < 12
+            ? 'improving'
+            : 'advanced';
+    const data: StudentProgress = {
+      studentId: user.id,
+      totalEssays: completedEssays.length,
+      averageScore,
+      radarData,
+      progressCurve,
+      achievements: earnedAchievements.map((a) => ({
+        id: a.id,
+        studentId: a.studentId,
+        code: a.code,
+        tier: a.tier as Achievement['tier'],
+        title: a.title,
+        description: a.description,
+        icon: a.icon,
+        earnedAt: a.earnedAt,
+        isUnlocked: true,
+      })),
+      rank,
+      level,
+    };
+    const duration = Date.now() - start;
+    routesLogger.info(
+      { userId: user.id, essays: completedEssays.length, duration: duration },
+      '[API /student/progress]',
+    );
+    return c.json({ success: true, data });
+  },
+);
 
 // Bug #245: 学生成就无 rateLimit；每次跑全量作文 + 解析 corrections JSON。
 app.get(
@@ -3728,122 +3723,125 @@ app.get(
   authMiddleware,
   requireRole(UserRole.STUDENT),
   async (c) => {
-  const user = c.get('user');
-  const start = Date.now();
-  routesLogger.info({ userId: user.id }, '[API /student/achievements]');
-  const earned = await db.query.achievements.findMany({
-    where: eq(achievements.studentId, user.id),
-  });
-  const earnedMap = new Map(earned.map((a) => [a.code, a]));
-  const earnedCodes = new Set(earned.map((a) => a.code));
-  // Bug #119: 硬编码 limit:200 与 /student/progress 同样的考量 —— 满足成就统计的近因
-  // 窗口即可，无需分页；显式注释后续可切换为物化视图或按需增量。
-  const studentEssays = await db.query.essays.findMany({
-    where: eq(essays.studentId, user.id),
-    with: { correction: true },
-    orderBy: desc(essays.createdAt),
-    limit: 200,
-  });
-  const completedEssays = studentEssays.filter((e) => e.status === 'completed');
-  const allScores = completedEssays.map((e) => e.totalScore).filter((s): s is number => s !== null);
-  const averageScore =
-    allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : null;
-  const perfectScores = allScores.filter((s) => s >= 15).length;
-  const asc = completedEssays.slice().sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
-  let streak = 0;
-  let maxStreak = 0;
-  let prev: number | null = null;
-  for (const e of asc) {
-    if (e.totalScore === null) {
-      streak = 0;
-      prev = null;
-      continue;
+    const user = c.get('user');
+    const start = Date.now();
+    routesLogger.info({ userId: user.id }, '[API /student/achievements]');
+    const earned = await db.query.achievements.findMany({
+      where: eq(achievements.studentId, user.id),
+    });
+    const earnedMap = new Map(earned.map((a) => [a.code, a]));
+    const earnedCodes = new Set(earned.map((a) => a.code));
+    // Bug #119: 硬编码 limit:200 与 /student/progress 同样的考量 —— 满足成就统计的近因
+    // 窗口即可，无需分页；显式注释后续可切换为物化视图或按需增量。
+    const studentEssays = await db.query.essays.findMany({
+      where: eq(essays.studentId, user.id),
+      with: { correction: true },
+      orderBy: desc(essays.createdAt),
+      limit: 200,
+    });
+    const completedEssays = studentEssays.filter((e) => e.status === 'completed');
+    const allScores = completedEssays
+      .map((e) => e.totalScore)
+      .filter((s): s is number => s !== null);
+    const averageScore =
+      allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : null;
+    const perfectScores = allScores.filter((s) => s >= 15).length;
+    const asc = completedEssays.slice().sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
+    let streak = 0;
+    let maxStreak = 0;
+    let prev: number | null = null;
+    for (const e of asc) {
+      if (e.totalScore === null) {
+        streak = 0;
+        prev = null;
+        continue;
+      }
+      if (prev !== null && e.totalScore > prev) {
+        streak++;
+        if (streak > maxStreak) maxStreak = streak;
+      } else {
+        streak = 0;
+      }
+      prev = e.totalScore;
     }
-    if (prev !== null && e.totalScore > prev) {
-      streak++;
-      if (streak > maxStreak) maxStreak = streak;
-    } else {
-      streak = 0;
+    let errorFreeEssays = 0;
+    for (const e of completedEssays) {
+      try {
+        const errs = JSON.parse(e.correction?.errors ?? '[]');
+        if (Array.isArray(errs) && errs.length === 0) errorFreeEssays++;
+      } catch {}
     }
-    prev = e.totalScore;
-  }
-  let errorFreeEssays = 0;
-  for (const e of completedEssays) {
-    try {
-      const errs = JSON.parse(e.correction?.errors ?? '[]');
-      if (Array.isArray(errs) && errs.length === 0) errorFreeEssays++;
-    } catch {}
-  }
-  const expectedCodes = checkAchievements({
-    totalEssays: completedEssays.length,
-    averageScore,
-    perfectScores,
-    consecutiveProgress: maxStreak,
-    errorFreeEssays,
-  });
-  const now = new Date().toISOString();
-  const unlockedNotRecorded = expectedCodes.filter((code) => !earnedCodes.has(code));
-  if (unlockedNotRecorded.length > 0) {
-    const newRecords = unlockedNotRecorded
-      .map((code) => {
-        const item = ACHIEVEMENT_CATALOG.find((c) => c.code === code);
-        if (!item) return null;
+    const expectedCodes = checkAchievements({
+      totalEssays: completedEssays.length,
+      averageScore,
+      perfectScores,
+      consecutiveProgress: maxStreak,
+      errorFreeEssays,
+    });
+    const now = new Date().toISOString();
+    const unlockedNotRecorded = expectedCodes.filter((code) => !earnedCodes.has(code));
+    if (unlockedNotRecorded.length > 0) {
+      const newRecords = unlockedNotRecorded
+        .map((code) => {
+          const item = ACHIEVEMENT_CATALOG.find((c) => c.code === code);
+          if (!item) return null;
+          return {
+            id: randomUUID(),
+            studentId: user.id,
+            code,
+            tier: item.tier,
+            title: item.title,
+            description: item.description,
+            icon: item.icon,
+            earnedAt: now,
+            createdAt: now,
+          };
+        })
+        .filter((r): r is NonNullable<typeof r> => r !== null);
+      await db.insert(achievements).values(newRecords).onConflictDoNothing();
+      for (const rec of newRecords) {
+        earnedMap.set(rec.code, rec);
+      }
+      routesLogger.info(
+        { userId: user.id, unlockedButNotRecorded: unlockedNotRecorded.join(',') },
+        '[API /student/achievements]',
+      );
+    }
+    const list: Achievement[] = ACHIEVEMENT_CATALOG.map((item) => {
+      const rec = earnedMap.get(item.code);
+      if (rec) {
         return {
-          id: randomUUID(),
-          studentId: user.id,
-          code,
-          tier: item.tier,
-          title: item.title,
-          description: item.description,
-          icon: item.icon,
-          earnedAt: now,
-          createdAt: now,
+          id: rec.id,
+          studentId: rec.studentId,
+          code: rec.code,
+          tier: rec.tier as Achievement['tier'],
+          title: rec.title,
+          description: rec.description,
+          icon: rec.icon,
+          earnedAt: rec.earnedAt,
+          isUnlocked: true,
         };
-      })
-      .filter((r): r is NonNullable<typeof r> => r !== null);
-    await db.insert(achievements).values(newRecords).onConflictDoNothing();
-    for (const rec of newRecords) {
-      earnedMap.set(rec.code, rec);
-    }
+      }
+      return {
+        id: '',
+        studentId: user.id,
+        code: item.code,
+        tier: item.tier,
+        title: item.title,
+        description: item.description,
+        icon: item.icon,
+        earnedAt: '',
+        isUnlocked: false,
+      };
+    });
+    const duration = Date.now() - start;
     routesLogger.info(
-      { userId: user.id, unlockedButNotRecorded: unlockedNotRecorded.join(',') },
+      { userId: user.id, earned: earned.length, duration: duration },
       '[API /student/achievements]',
     );
-  }
-  const list: Achievement[] = ACHIEVEMENT_CATALOG.map((item) => {
-    const rec = earnedMap.get(item.code);
-    if (rec) {
-      return {
-        id: rec.id,
-        studentId: rec.studentId,
-        code: rec.code,
-        tier: rec.tier as Achievement['tier'],
-        title: rec.title,
-        description: rec.description,
-        icon: rec.icon,
-        earnedAt: rec.earnedAt,
-        isUnlocked: true,
-      };
-    }
-    return {
-      id: '',
-      studentId: user.id,
-      code: item.code,
-      tier: item.tier,
-      title: item.title,
-      description: item.description,
-      icon: item.icon,
-      earnedAt: '',
-      isUnlocked: false,
-    };
-  });
-  const duration = Date.now() - start;
-  routesLogger.info(
-    { userId: user.id, earned: earned.length, duration: duration },
-    '[API /student/achievements]',
-  );
-  return c.json({ success: true, data: list });
-});
+    return c.json({ success: true, data: list });
+  },
+);
 
 // ========== Student Dashboard & Drafts ==========
 // Bug #246: 学生 dashboard 已有 60s memoize 缓存，但首次命中仍是多表 JOIN，限流防刷。
@@ -3854,77 +3852,83 @@ app.get(
   authMiddleware,
   requireRole(UserRole.STUDENT),
   async (c) => {
-  const user = c.get('user');
-  const start = Date.now();
-  routesLogger.info({ userId: user.id }, '[API /student/dashboard]');
+    const user = c.get('user');
+    const start = Date.now();
+    routesLogger.info({ userId: user.id }, '[API /student/dashboard]');
 
-  const data = await memoizeAsync(`student_dash:${user.id}`, 60_000, async () => {
-    const enrollments = await db.query.classEnrollments.findMany({
-      where: and(eq(classEnrollments.userId, user.id), eq(classEnrollments.role, 'student')),
-      columns: { classId: true },
-    });
-    const classIds = enrollments.map((e) => e.classId);
-    // Bug #151: 之前 teachingResources 拉 limit:100 全部到内存再随机选 1 条，
-    // 资源表大时浪费 IO；改为 COUNT 一下总数后用 OFFSET 随机偏移，仅取 1 条。
-    const sentenceCount = await db
-      .select({ value: count() })
-      .from(teachingResources)
-      .where(eq(teachingResources.type, TeachingResourceType.SENTENCE));
-    const total = Number(sentenceCount[0]?.value ?? 0);
-    let sentenceResource: { id: string; title: string; content: string } | undefined;
-    if (total > 0) {
-      const offset = Math.floor(Math.random() * total);
-      const [pick] = await db
-        .select({
-          id: teachingResources.id,
-          title: teachingResources.title,
-          content: teachingResources.content,
-        })
+    const data = await memoizeAsync(`student_dash:${user.id}`, 60_000, async () => {
+      const enrollments = await db.query.classEnrollments.findMany({
+        where: and(eq(classEnrollments.userId, user.id), eq(classEnrollments.role, 'student')),
+        columns: { classId: true },
+      });
+      const classIds = enrollments.map((e) => e.classId);
+      // Bug #151: 之前 teachingResources 拉 limit:100 全部到内存再随机选 1 条，
+      // 资源表大时浪费 IO；改为 COUNT 一下总数后用 OFFSET 随机偏移，仅取 1 条。
+      const sentenceCount = await db
+        .select({ value: count() })
         .from(teachingResources)
-        .where(eq(teachingResources.type, TeachingResourceType.SENTENCE))
-        .limit(1)
-        .offset(offset);
-      sentenceResource = pick;
-    }
-    const [pendingTasksRows, studentEssays] = await Promise.all([
-      classIds.length > 0
-        ? db.query.essayTasks.findMany({
-            where: and(inArray(essayTasks.classId, classIds), eq(essayTasks.status, 'published')),
-            columns: { id: true },
+        .where(eq(teachingResources.type, TeachingResourceType.SENTENCE));
+      const total = Number(sentenceCount[0]?.value ?? 0);
+      let sentenceResource: { id: string; title: string; content: string } | undefined;
+      if (total > 0) {
+        const offset = Math.floor(Math.random() * total);
+        const [pick] = await db
+          .select({
+            id: teachingResources.id,
+            title: teachingResources.title,
+            content: teachingResources.content,
           })
-        : Promise.resolve([]),
-      db.query.essays.findMany({
-        where: eq(essays.studentId, user.id),
-        columns: { status: true, totalScore: true },
-      }),
-    ]);
-    const pendingTasks = pendingTasksRows.length;
-    const completedEssays = studentEssays.filter((e) => e.status === 'completed');
-    const correctedEssays = completedEssays.length;
-    const allScores = completedEssays
-      .map((e) => e.totalScore)
-      .filter((s): s is number => s !== null);
-    const averageScore =
-      allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : null;
-    let quote: DailyQuote | null = null;
-    if (sentenceResource) {
-      quote = { id: sentenceResource.id, text: sentenceResource.content, translation: null, source: sentenceResource.title };
-    }
-    return { pendingTasks, correctedEssays, averageScore, quote };
-  });
+          .from(teachingResources)
+          .where(eq(teachingResources.type, TeachingResourceType.SENTENCE))
+          .limit(1)
+          .offset(offset);
+        sentenceResource = pick;
+      }
+      const [pendingTasksRows, studentEssays] = await Promise.all([
+        classIds.length > 0
+          ? db.query.essayTasks.findMany({
+              where: and(inArray(essayTasks.classId, classIds), eq(essayTasks.status, 'published')),
+              columns: { id: true },
+            })
+          : Promise.resolve([]),
+        db.query.essays.findMany({
+          where: eq(essays.studentId, user.id),
+          columns: { status: true, totalScore: true },
+        }),
+      ]);
+      const pendingTasks = pendingTasksRows.length;
+      const completedEssays = studentEssays.filter((e) => e.status === 'completed');
+      const correctedEssays = completedEssays.length;
+      const allScores = completedEssays
+        .map((e) => e.totalScore)
+        .filter((s): s is number => s !== null);
+      const averageScore =
+        allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : null;
+      let quote: DailyQuote | null = null;
+      if (sentenceResource) {
+        quote = {
+          id: sentenceResource.id,
+          text: sentenceResource.content,
+          translation: null,
+          source: sentenceResource.title,
+        };
+      }
+      return { pendingTasks, correctedEssays, averageScore, quote };
+    });
 
-  const duration = Date.now() - start;
-  routesLogger.info(
-    {
-      userId: user.id,
-      pending: data.pendingTasks,
-      corrected: data.correctedEssays,
-      duration: duration,
-    },
-    '[API /student/dashboard]',
-  );
-  return c.json({ success: true, data });
-});
+    const duration = Date.now() - start;
+    routesLogger.info(
+      {
+        userId: user.id,
+        pending: data.pendingTasks,
+        corrected: data.correctedEssays,
+        duration: duration,
+      },
+      '[API /student/dashboard]',
+    );
+    return c.json({ success: true, data });
+  },
+);
 
 // Bug #247: 学生草稿读无 rateLimit；前端高频自动保存对应"读最近草稿"轮询。
 app.get(
@@ -3934,35 +3938,36 @@ app.get(
   authMiddleware,
   requireRole(UserRole.STUDENT),
   async (c) => {
-  const user = c.get('user');
-  const taskId = c.req.param('taskId');
-  routesLogger.info({ userId: user.id, taskId: taskId }, '[API /student/drafts/:taskId GET]');
-  // Bug #132 续: 读取草稿同样需要校验学生在该 task 所属班级。
-  // 任务不存在/学生未在班级 → 返回空草稿（与未写过草稿一致），避免泄露任务存在性。
-  const task = await db.query.essayTasks.findFirst({
-    where: eq(essayTasks.id, taskId),
-    columns: { id: true, classId: true },
-  });
-  if (!task) return c.json({ success: true, data: null });
-  const enrolled = await db.query.classEnrollments.findFirst({
-    where: and(eq(classEnrollments.classId, task.classId), eq(classEnrollments.userId, user.id)),
-  });
-  if (!enrolled) return c.json({ success: true, data: null });
-  const draft = await db.query.essayDrafts.findFirst({
-    where: and(eq(essayDrafts.studentId, user.id), eq(essayDrafts.taskId, taskId)),
-  });
-  if (!draft) return c.json({ success: true, data: null });
-  const data: EssayDraft = {
-    id: draft.id,
-    studentId: draft.studentId,
-    taskId: draft.taskId,
-    content: draft.content,
-    wordCount: draft.wordCount,
-    durationMs: draft.durationMs,
-    updatedAt: draft.updatedAt,
-  };
-  return c.json({ success: true, data });
-});
+    const user = c.get('user');
+    const taskId = c.req.param('taskId');
+    routesLogger.info({ userId: user.id, taskId: taskId }, '[API /student/drafts/:taskId GET]');
+    // Bug #132 续: 读取草稿同样需要校验学生在该 task 所属班级。
+    // 任务不存在/学生未在班级 → 返回空草稿（与未写过草稿一致），避免泄露任务存在性。
+    const task = await db.query.essayTasks.findFirst({
+      where: eq(essayTasks.id, taskId),
+      columns: { id: true, classId: true },
+    });
+    if (!task) return c.json({ success: true, data: null });
+    const enrolled = await db.query.classEnrollments.findFirst({
+      where: and(eq(classEnrollments.classId, task.classId), eq(classEnrollments.userId, user.id)),
+    });
+    if (!enrolled) return c.json({ success: true, data: null });
+    const draft = await db.query.essayDrafts.findFirst({
+      where: and(eq(essayDrafts.studentId, user.id), eq(essayDrafts.taskId, taskId)),
+    });
+    if (!draft) return c.json({ success: true, data: null });
+    const data: EssayDraft = {
+      id: draft.id,
+      studentId: draft.studentId,
+      taskId: draft.taskId,
+      content: draft.content,
+      wordCount: draft.wordCount,
+      durationMs: draft.durationMs,
+      updatedAt: draft.updatedAt,
+    };
+    return c.json({ success: true, data });
+  },
+);
 
 const draftBodySchema = z.object({
   // Bug #170: 草稿内容原 schema 仅有 min(1) 无 max，学生可塞 1MB 文本反复写入。
@@ -4111,7 +4116,10 @@ app.get(
             .select({ value: count() })
             .from(users)
             .where(and(eq(users.role, UserRole.STUDENT), eq(users.isActive, true))),
-          db.select({ value: count() }).from(apiCallLogs).where(gte(apiCallLogs.createdAt, todayIso)),
+          db
+            .select({ value: count() })
+            .from(apiCallLogs)
+            .where(gte(apiCallLogs.createdAt, todayIso)),
           db.select({ value: count() }).from(apiCallLogs),
           db.select({ value: count() }).from(apiCallLogs).where(eq(apiCallLogs.status, 'success')),
           db.select({ avg: sql<number>`AVG(${apiCallLogs.latencyMs})` }).from(apiCallLogs),
@@ -4173,97 +4181,98 @@ app.get(
   authMiddleware,
   requireRole(UserRole.SUPER_ADMIN),
   async (c) => {
-  const user = c.get('user');
-  const startedAt = Date.now();
-  const region = c.req.query('region');
-  const offset = parseNonNegativeInt(c.req.query('offset'), 0);
-  const limit = parsePositiveInt(c.req.query('limit'), 50, 200);
-  routesLogger.info(
-    { userId: user.id, region: region ?? 'all', offset: offset, limit: limit },
-    '[API /admin/schools]',
-  );
-
-  try {
-    const where = region ? eq(schools.region, region) : undefined;
-    const rows = await db.query.schools.findMany({
-      where,
-      orderBy: desc(schools.createdAt),
-      limit,
-      offset,
-    });
-
-    const schoolIds = rows.map((s) => s.id);
-
-    const [teacherCounts, studentCounts, classCounts, essayCounts, scoreAverages] =
-      await Promise.all([
-        db
-          .select({ schoolId: users.schoolId, value: count() })
-          .from(users)
-          .where(and(inArray(users.schoolId, schoolIds), eq(users.role, UserRole.TEACHER)))
-          .groupBy(users.schoolId),
-        db
-          .select({ schoolId: users.schoolId, value: count() })
-          .from(users)
-          .where(and(inArray(users.schoolId, schoolIds), eq(users.role, UserRole.STUDENT)))
-          .groupBy(users.schoolId),
-        db
-          .select({ schoolId: classes.schoolId, value: count() })
-          .from(classes)
-          .where(inArray(classes.schoolId, schoolIds))
-          .groupBy(classes.schoolId),
-        db
-          .select({ schoolId: users.schoolId, value: count() })
-          .from(essays)
-          .innerJoin(users, eq(essays.studentId, users.id))
-          .where(inArray(users.schoolId, schoolIds))
-          .groupBy(users.schoolId),
-        db
-          .select({ schoolId: users.schoolId, avg: sql<number>`AVG(${essays.totalScore})` })
-          .from(essays)
-          .innerJoin(users, eq(essays.studentId, users.id))
-          .where(and(inArray(users.schoolId, schoolIds), sql`${essays.totalScore} IS NOT NULL`))
-          .groupBy(users.schoolId),
-      ]);
-
-    const teacherMap = new Map(teacherCounts.map((r) => [r.schoolId, Number(r.value)]));
-    const studentMap = new Map(studentCounts.map((r) => [r.schoolId, Number(r.value)]));
-    const classMap = new Map(classCounts.map((r) => [r.schoolId, Number(r.value)]));
-    const essayMap = new Map(essayCounts.map((r) => [r.schoolId, Number(r.value)]));
-    const scoreMap = new Map(scoreAverages.map((r) => [r.schoolId, r.avg]));
-
-    const stats: SchoolWithStats[] = rows.map((s) => {
-      const avg = scoreMap.get(s.id);
-      return {
-        id: s.id,
-        code: s.code,
-        name: s.name,
-        region: s.region,
-        contactName: s.contactName,
-        contactPhone: s.contactPhone,
-        isActive: s.isActive,
-        createdAt: s.createdAt,
-        updatedAt: s.updatedAt,
-        totalTeachers: teacherMap.get(s.id) ?? 0,
-        totalStudents: studentMap.get(s.id) ?? 0,
-        totalClasses: classMap.get(s.id) ?? 0,
-        totalEssays: essayMap.get(s.id) ?? 0,
-        averageScore: avg != null ? Math.round(Number(avg) * 10) / 10 : null,
-      };
-    });
-
+    const user = c.get('user');
+    const startedAt = Date.now();
+    const region = c.req.query('region');
+    const offset = parseNonNegativeInt(c.req.query('offset'), 0);
+    const limit = parsePositiveInt(c.req.query('limit'), 50, 200);
     routesLogger.info(
-      { duration: Date.now() - startedAt, count: stats.length },
-      '[API /admin/schools] exit',
+      { userId: user.id, region: region ?? 'all', offset: offset, limit: limit },
+      '[API /admin/schools]',
     );
-    return c.json({ success: true, data: stats });
-  } catch (err) {
-    routesLogger.error(
-      { err: err instanceof Error ? err.message : 'unknown' },
-      '[API /admin/schools] error:',
-    );
-    return c.json({ success: false, error: '获取学校列表失败' }, 500);
-  }
-});
+
+    try {
+      const where = region ? eq(schools.region, region) : undefined;
+      const rows = await db.query.schools.findMany({
+        where,
+        orderBy: desc(schools.createdAt),
+        limit,
+        offset,
+      });
+
+      const schoolIds = rows.map((s) => s.id);
+
+      const [teacherCounts, studentCounts, classCounts, essayCounts, scoreAverages] =
+        await Promise.all([
+          db
+            .select({ schoolId: users.schoolId, value: count() })
+            .from(users)
+            .where(and(inArray(users.schoolId, schoolIds), eq(users.role, UserRole.TEACHER)))
+            .groupBy(users.schoolId),
+          db
+            .select({ schoolId: users.schoolId, value: count() })
+            .from(users)
+            .where(and(inArray(users.schoolId, schoolIds), eq(users.role, UserRole.STUDENT)))
+            .groupBy(users.schoolId),
+          db
+            .select({ schoolId: classes.schoolId, value: count() })
+            .from(classes)
+            .where(inArray(classes.schoolId, schoolIds))
+            .groupBy(classes.schoolId),
+          db
+            .select({ schoolId: users.schoolId, value: count() })
+            .from(essays)
+            .innerJoin(users, eq(essays.studentId, users.id))
+            .where(inArray(users.schoolId, schoolIds))
+            .groupBy(users.schoolId),
+          db
+            .select({ schoolId: users.schoolId, avg: sql<number>`AVG(${essays.totalScore})` })
+            .from(essays)
+            .innerJoin(users, eq(essays.studentId, users.id))
+            .where(and(inArray(users.schoolId, schoolIds), sql`${essays.totalScore} IS NOT NULL`))
+            .groupBy(users.schoolId),
+        ]);
+
+      const teacherMap = new Map(teacherCounts.map((r) => [r.schoolId, Number(r.value)]));
+      const studentMap = new Map(studentCounts.map((r) => [r.schoolId, Number(r.value)]));
+      const classMap = new Map(classCounts.map((r) => [r.schoolId, Number(r.value)]));
+      const essayMap = new Map(essayCounts.map((r) => [r.schoolId, Number(r.value)]));
+      const scoreMap = new Map(scoreAverages.map((r) => [r.schoolId, r.avg]));
+
+      const stats: SchoolWithStats[] = rows.map((s) => {
+        const avg = scoreMap.get(s.id);
+        return {
+          id: s.id,
+          code: s.code,
+          name: s.name,
+          region: s.region,
+          contactName: s.contactName,
+          contactPhone: s.contactPhone,
+          isActive: s.isActive,
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt,
+          totalTeachers: teacherMap.get(s.id) ?? 0,
+          totalStudents: studentMap.get(s.id) ?? 0,
+          totalClasses: classMap.get(s.id) ?? 0,
+          totalEssays: essayMap.get(s.id) ?? 0,
+          averageScore: avg != null ? Math.round(Number(avg) * 10) / 10 : null,
+        };
+      });
+
+      routesLogger.info(
+        { duration: Date.now() - startedAt, count: stats.length },
+        '[API /admin/schools] exit',
+      );
+      return c.json({ success: true, data: stats });
+    } catch (err) {
+      routesLogger.error(
+        { err: err instanceof Error ? err.message : 'unknown' },
+        '[API /admin/schools] error:',
+      );
+      return c.json({ success: false, error: '获取学校列表失败' }, 500);
+    }
+  },
+);
 
 app.post(
   '/admin/schools',
@@ -4305,10 +4314,7 @@ app.post(
       } catch (insertErr) {
         const msg = insertErr instanceof Error ? insertErr.message : String(insertErr);
         if (/UNIQUE.*schools_code|schools\.code/i.test(msg) || /UNIQUE.*constraint/i.test(msg)) {
-          routesLogger.warn(
-            { code: code },
-            '[API /admin/schools POST] duplicate code race',
-          );
+          routesLogger.warn({ code: code }, '[API /admin/schools POST] duplicate code race');
           return c.json({ success: false, error: '学校代码已存在' }, 409);
         }
         throw insertErr;
@@ -4359,8 +4365,7 @@ app.put(
           }
         }
       }
-      const normalizedCode =
-        body.code !== undefined ? body.code.trim().toUpperCase() : undefined;
+      const normalizedCode = body.code !== undefined ? body.code.trim().toUpperCase() : undefined;
       const now = new Date().toISOString();
       // Bug #200 续: 同样可能并发两 admin 都通过 findFirst 检查（dup 查不到），
       // 然后都 UPDATE，第二次抛 UNIQUE 5xx。捕获并转 409。
@@ -4643,10 +4648,7 @@ app.post(
       );
       // Bug #56: AI provider 配置在 web 端写入，worker 是另一个进程不会感知；
       // 必须提示 admin 需重启 worker 才生效。reload 字段供前端展示 toast。
-      return c.json(
-        { success: true, data: { id, requiresWorkerReload: true } },
-        201,
-      );
+      return c.json({ success: true, data: { id, requiresWorkerReload: true } }, 201);
     } catch (err) {
       routesLogger.error(
         { err: err instanceof Error ? err.message : 'unknown' },
@@ -4776,10 +4778,7 @@ app.get(
       const fromMs = Date.parse(dateFrom);
       const toMs = Date.parse(dateTo);
       if (Number.isFinite(fromMs) && Number.isFinite(toMs) && fromMs > toMs) {
-        return c.json(
-          { success: false, error: 'dateFrom 不能晚于 dateTo' },
-          400,
-        );
+        return c.json({ success: false, error: 'dateFrom 不能晚于 dateTo' }, 400);
       }
     }
 
@@ -5065,58 +5064,59 @@ app.get(
   authMiddleware,
   requireRole(UserRole.SUPER_ADMIN),
   async (c) => {
-  const user = c.get('user');
-  const startedAt = Date.now();
-  const topicType = c.req.query('topicType');
-  const difficulty = c.req.query('difficulty');
-  const offset = parseNonNegativeInt(c.req.query('offset'), 0);
-  const limit = parsePositiveInt(c.req.query('limit'), 50, 200);
-  routesLogger.info(
-    { userId: user.id, topicType: topicType ?? 'all', difficulty: difficulty ?? 'all' },
-    '[API /admin/question-bank]',
-  );
-
-  try {
-    const conds = [];
-    if (topicType) conds.push(eq(questionBank.topicType, topicType));
-    if (difficulty) conds.push(eq(questionBank.difficulty, difficulty));
-    const where = conds.length === 0 ? undefined : conds.length === 1 ? conds[0] : and(...conds);
-
-    const rows = await db.query.questionBank.findMany({
-      where,
-      orderBy: desc(questionBank.createdAt),
-      limit,
-      offset,
-    });
-    const data: QuestionBankItem[] = rows.map((r) => ({
-      id: r.id,
-      topicType: r.topicType,
-      topicCategory: r.topicCategory,
-      title: r.title,
-      requirements: r.requirements,
-      keyPoints: safeJsonArray(r.keyPoints),
-      referenceEssay: r.referenceEssay,
-      wordLimitMin: r.wordLimitMin,
-      wordLimitMax: r.wordLimitMax,
-      timeLimitMinutes: r.timeLimitMinutes,
-      difficulty: r.difficulty as QuestionBankItem['difficulty'],
-      source: r.source,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-    }));
+    const user = c.get('user');
+    const startedAt = Date.now();
+    const topicType = c.req.query('topicType');
+    const difficulty = c.req.query('difficulty');
+    const offset = parseNonNegativeInt(c.req.query('offset'), 0);
+    const limit = parsePositiveInt(c.req.query('limit'), 50, 200);
     routesLogger.info(
-      { duration: Date.now() - startedAt, count: data.length },
-      '[API /admin/question-bank] exit',
+      { userId: user.id, topicType: topicType ?? 'all', difficulty: difficulty ?? 'all' },
+      '[API /admin/question-bank]',
     );
-    return c.json({ success: true, data });
-  } catch (err) {
-    routesLogger.error(
-      { err: err instanceof Error ? err.message : 'unknown' },
-      '[API /admin/question-bank] error:',
-    );
-    return c.json({ success: false, error: '获取题库失败' }, 500);
-  }
-});
+
+    try {
+      const conds = [];
+      if (topicType) conds.push(eq(questionBank.topicType, topicType));
+      if (difficulty) conds.push(eq(questionBank.difficulty, difficulty));
+      const where = conds.length === 0 ? undefined : conds.length === 1 ? conds[0] : and(...conds);
+
+      const rows = await db.query.questionBank.findMany({
+        where,
+        orderBy: desc(questionBank.createdAt),
+        limit,
+        offset,
+      });
+      const data: QuestionBankItem[] = rows.map((r) => ({
+        id: r.id,
+        topicType: r.topicType,
+        topicCategory: r.topicCategory,
+        title: r.title,
+        requirements: r.requirements,
+        keyPoints: safeJsonArray(r.keyPoints),
+        referenceEssay: r.referenceEssay,
+        wordLimitMin: r.wordLimitMin,
+        wordLimitMax: r.wordLimitMax,
+        timeLimitMinutes: r.timeLimitMinutes,
+        difficulty: r.difficulty as QuestionBankItem['difficulty'],
+        source: r.source,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      }));
+      routesLogger.info(
+        { duration: Date.now() - startedAt, count: data.length },
+        '[API /admin/question-bank] exit',
+      );
+      return c.json({ success: true, data });
+    } catch (err) {
+      routesLogger.error(
+        { err: err instanceof Error ? err.message : 'unknown' },
+        '[API /admin/question-bank] error:',
+      );
+      return c.json({ success: false, error: '获取题库失败' }, 500);
+    }
+  },
+);
 
 app.post(
   '/admin/question-bank',
@@ -5266,17 +5266,18 @@ app.get(
   authMiddleware,
   requireRole(UserRole.SUPER_ADMIN),
   async (c) => {
-  const user = c.get('user');
-  const startedAt = Date.now();
-  routesLogger.info({ userId: user.id }, '[API /admin/scoring-config]');
-  const data = {
-    scoringWeights: SCORING_WEIGHTS,
-    scoreTiers: SCORE_TIERS,
-    deductionRules: DEDUCTION_RULES,
-  };
-  routesLogger.info({ duration: Date.now() - startedAt }, '[API /admin/scoring-config] exit');
-  return c.json({ success: true, data });
-});
+    const user = c.get('user');
+    const startedAt = Date.now();
+    routesLogger.info({ userId: user.id }, '[API /admin/scoring-config]');
+    const data = {
+      scoringWeights: SCORING_WEIGHTS,
+      scoreTiers: SCORE_TIERS,
+      deductionRules: DEDUCTION_RULES,
+    };
+    routesLogger.info({ duration: Date.now() - startedAt }, '[API /admin/scoring-config] exit');
+    return c.json({ success: true, data });
+  },
+);
 
 export type AppType = typeof app;
 

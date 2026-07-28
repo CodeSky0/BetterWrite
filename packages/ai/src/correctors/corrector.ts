@@ -1,6 +1,9 @@
-import { countWords, getScoreTier } from '@betterwrite/shared';
+import { countWords, generateContentHash, getScoreTier } from '@betterwrite/shared';
+// cache 依赖 ioredis（Node-only），须从子路径导入，避免污染主入口的客户端可用性
+import { getCacheManager } from '@betterwrite/shared/cache';
 import type { BaseAIProvider } from '../providers/base.js';
 import type { AIProviderRouter } from '../router.js';
+import { compressPrompt } from '../utils/prompt-compression.js';
 import { contentPrompt } from './content.js';
 import { languagePrompt } from './language.js';
 import {
@@ -65,13 +68,35 @@ export async function correctEssay(
 ): Promise<CorrectionResult> {
   const wordCount = countWords(essay);
 
+  // Generate content hash for caching
+  const contentHash = generateContentHash(essay, task);
+  const cache = getCacheManager();
+
+  // Try to get cached result
+  const cacheKey = `correction:${contentHash}`;
+  const cached = await cache.get<CorrectionResult>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  // Apply prompt compression
+  const { compressedEssay, compressedTask } = compressPrompt(essay, task);
+  const shouldUseCompressed = essay.length > 1000; // Only compress for longer essays
+
+  const essayToUse = shouldUseCompressed ? compressedEssay : essay;
+  const taskToUse = shouldUseCompressed ? JSON.parse(compressedTask) : task;
+
   const [topicAdherenceResult, contentResult, languageResult, structureResult] = await Promise.all([
     router.executeWithFallback('topicAdherence', (provider) =>
-      analyzeTopicAdherence(provider, essay, task),
+      analyzeTopicAdherence(provider, essayToUse, taskToUse),
     ),
-    router.executeWithFallback('content', (provider) => analyzeContent(provider, essay, task)),
-    router.executeWithFallback('language', (provider) => analyzeLanguage(provider, essay)),
-    router.executeWithFallback('structure', (provider) => analyzeStructure(provider, essay, task)),
+    router.executeWithFallback('content', (provider) =>
+      analyzeContent(provider, essayToUse, taskToUse),
+    ),
+    router.executeWithFallback('language', (provider) => analyzeLanguage(provider, essayToUse)),
+    router.executeWithFallback('structure', (provider) =>
+      analyzeStructure(provider, essayToUse, taskToUse),
+    ),
   ]);
 
   const scoreResult = await router.executeWithFallback('scorer', (provider) =>
@@ -85,7 +110,7 @@ export async function correctEssay(
     }),
   );
 
-  return {
+  const result: CorrectionResult = {
     topicAdherenceScore: scoreResult.dimensionScores.topicAdherence,
     contentScore: scoreResult.dimensionScores.content,
     languageScore: scoreResult.dimensionScores.language,
@@ -100,6 +125,11 @@ export async function correctEssay(
     aiProvider: scoreResult.aiProvider,
     aiModel: scoreResult.aiModel,
   };
+
+  // Cache the result for 24 hours
+  await cache.set(cacheKey, result, { ttl: 86400 });
+
+  return result;
 }
 
 async function analyzeContent(

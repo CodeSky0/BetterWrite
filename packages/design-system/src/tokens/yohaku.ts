@@ -12,6 +12,14 @@
 export const ACCENT_LIGHT = '#c56473';
 /** 桃 momo — dark theme accent (auto-applied via `.dark`). */
 export const ACCENT_DARK = '#f596aa';
+/** Accent hover/active — light theme. */
+export const ACCENT_HOVER_LIGHT = '#a85568';
+/** Accent hover/active — dark theme. */
+export const ACCENT_HOVER_DARK = '#f7a8ba';
+/** Accent tinted surface — light theme. */
+export const ACCENT_TINT_LIGHT = '#f4dce0';
+/** Accent tinted surface — dark theme. */
+export const ACCENT_TINT_DARK = '#3d2a30';
 
 /**
  * Neutral 「素 Pure」 3-tier scale.
@@ -66,6 +74,10 @@ export const semantic = {
 export const accent = {
   light: ACCENT_LIGHT,
   dark: ACCENT_DARK,
+  hoverLight: ACCENT_HOVER_LIGHT,
+  hoverDark: ACCENT_HOVER_DARK,
+  tintLight: ACCENT_TINT_LIGHT,
+  tintDark: ACCENT_TINT_DARK,
 } as const;
 
 /** Page background (paper) — runtime-overridable via `--surface-paper`. */

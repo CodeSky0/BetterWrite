@@ -45,7 +45,8 @@ function getVariantColors(
   switch (variant) {
     case 'default':
     case 'accent':
-      return { bg: c.accent, text: '#FFFFFF', border: undefined };
+      // 暗色下 neutral1 反相为深色，保证桃色底上的文字对比度（同 web dark:text-neutral-1）
+      return { bg: c.accent, text: c.neutral1, border: undefined };
     case 'secondary':
       return { bg: c.bgSecondary, text: c.textSecondary, border: undefined };
     case 'outline':
@@ -72,7 +73,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   text: {
-    fontSize: fontSizes.xs,
+    fontSize: fontSizes.label12,
     fontWeight: fontWeights.medium,
   },
 });
