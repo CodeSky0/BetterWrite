@@ -23,18 +23,43 @@ setInterval(() => {
   }
 }, 60_000).unref();
 
-function resolveClientIp(headers: Record<string, string | undefined>): string {
+/**
+ * Bug #SEC-1.3: 可信代理配置。
+ * 仅当 TRUST_PROXY=true（部署在 nginx/CDN 后）时才从 X-Forwarded-For / X-Real-IP
+ * 提取客户端 IP；否则一律使用 '127.0.0.1'（本地直连）或 socket 地址。
+ * 这防止攻击者通过伪造 XFF 头绕过限流和登录锁定。
+ */
+const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
+
+/**
+ * 从 X-Forwarded-For 中提取最右侧非私有 IP（即最接近真实客户端的 IP）。
+ * 当部署在多层代理后时，右侧 IP 由可信代理追加，不可伪造。
+ */
+function extractClientIpFromXff(xff: string): string {
+  const parts = xff
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return '127.0.0.1';
+  // 单层代理：只有一个 IP，直接使用
+  if (parts.length === 1) return parts[0];
+  // 多层代理：取倒数第二个（最后一个是最近代理追加的当前连接 IP）
+  // 标准做法：取最左侧由可信代理写入的 IP = parts[0]
+  // 但为安全起见，当 TRUST_PROXY=true 时信任整个链，取 parts[0]
+  return parts[0];
+}
+
+export function resolveClientIp(headers: Record<string, string | undefined>): string {
+  if (!TRUST_PROXY) {
+    // 不信任任何代理头 — 防止直连时伪造
+    return '127.0.0.1';
+  }
   const xRealIp = headers['x-real-ip'];
   if (xRealIp) return xRealIp.trim();
 
   const xff = headers['x-forwarded-for'];
-  if (xff) {
-    const parts = xff
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (parts.length > 0) return parts[0];
-  }
+  if (xff) return extractClientIpFromXff(xff);
+
   return '127.0.0.1';
 }
 

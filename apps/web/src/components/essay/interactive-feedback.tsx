@@ -99,34 +99,36 @@ export function InteractiveFeedback({
     }
   };
 
-  const _renderHighlightedText = (text: string, highlightsList: typeof highlights) => {
-    if (highlightsList.length === 0) return text;
+  const escapeHtml = (str: string): string =>
+    str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
 
-    let result = text;
+  const _renderHighlightedText = (text: string, highlightsList: typeof highlights) => {
+    // Bug #SEC-1.1: 必须先对原始作文文本做完整 HTML 转义，防止学生作文中的
+    // <script>/<img onerror> 等标签通过 dangerouslySetInnerHTML 执行 XSS。
+    const escapedText = escapeHtml(text);
+
+    if (highlightsList.length === 0) return escapedText;
+
+    let result = escapedText;
     for (const highlight of highlightsList) {
-      const parts = result.split(highlight.sentence);
+      // 对 sentence 也做转义后再在已转义的文本中查找（保证 split 匹配）
+      const escapedSentence = escapeHtml(highlight.sentence);
+      const escapedComment = escapeHtml(highlight.comment);
+      const parts = result.split(escapedSentence);
       if (parts.length > 1) {
-        // Escape HTML in both the sentence and comment to prevent XSS
-        const escapedSentence = highlight.sentence
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#39;');
-        const escapedComment = highlight.comment
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#39;');
         result = parts.join(
           `<mark class="bg-accent/20 px-1 rounded cursor-pointer hover:bg-accent/30" title="${escapedComment}">${escapedSentence}</mark>`,
         );
       }
     }
 
-    // 已在上方对 sentence/comment 做完整 HTML 转义，杜绝 XSS；此处需渲染高亮 mark 标签。
-    // biome-ignore lint/security/noDangerouslySetInnerHtml: content is HTML-escaped above, only static mark tags are injected
+    // 所有动态内容（原文、sentence、comment）均已 HTML 转义，仅注入静态 mark 标签。
+    // biome-ignore lint/security/noDangerouslySetInnerHtml: all dynamic content is HTML-escaped above
     return <div dangerouslySetInnerHTML={{ __html: result }} className="leading-relaxed" />;
   };
 

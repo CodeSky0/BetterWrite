@@ -201,6 +201,10 @@ export const fetcher = {
 
   listTokens: () => request<ApiResponse<ApiTokenItem[]>>('/api/auth/tokens'),
 
+  // Bug #UX-4.2: 登出时撤销服务端 token，防止 token 泄露后仍有效 90 天。
+  revokeToken: (tokenId: string) =>
+    request<ApiResponse<null>>(`/api/auth/tokens/${tokenId}`, { method: 'DELETE' }),
+
   registerDeviceToken: (body: { token: string; platform: string }) =>
     request<ApiResponse<{ userId: string; token: string }>>('/api/auth/device-token', {
       method: 'POST',

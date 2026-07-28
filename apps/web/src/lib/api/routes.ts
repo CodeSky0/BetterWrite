@@ -27,6 +27,7 @@ import {
   practiceExercises,
   questionBank,
   schools,
+  sessions,
   studentTags,
   teachingResources,
   users,
@@ -80,10 +81,10 @@ import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { getAiRouter, invalidateAiRouterCache } from '../ai/router';
 import { memoizeAsync } from './cache';
-import { authMiddleware, requireRole } from './middleware';
+import { authMiddleware, hashToken, requireRole } from './middleware';
 import type { AuthVariables } from './middleware';
 import { addCorrectionJob, correctionQueue } from './queue';
-import { rateLimit } from './rate-limiter';
+import { rateLimit, resolveClientIp as _resolveClientIp } from './rate-limiter';
 import { getRedis, pingRedis } from './redis';
 
 const app = new Hono<{ Variables: AuthVariables }>().basePath('/api');
@@ -275,15 +276,12 @@ function clearLoginFailures(emailKey: string, _ipKey: string): void {
   loginFailStore.delete(emailKey);
 }
 
+// Bug #SEC-1.3: 使用 rate-limiter 导出的安全版本，受 TRUST_PROXY 环境变量控制。
 function resolveClientIp(c: { req: { header: (k: string) => string | undefined } }): string {
-  const xRealIp = c.req.header('x-real-ip');
-  if (xRealIp) return xRealIp.trim();
-  const xff = c.req.header('x-forwarded-for');
-  if (xff) {
-    const first = xff.split(',')[0]?.trim();
-    if (first) return first;
-  }
-  return '127.0.0.1';
+  return _resolveClientIp({
+    'x-real-ip': c.req.header('x-real-ip'),
+    'x-forwarded-for': c.req.header('x-forwarded-for'),
+  });
 }
 
 app.post(
@@ -410,7 +408,7 @@ function assertNotWeakPassword(password: string): string | null {
 const registerSchema = z.object({
   email: z.string().email('请输入有效邮箱'),
   password: z.string().min(8, '密码至少8位'),
-  // Bug #121: 限长 + 过滤控制字符，避免 XSS 向量与排版错乱；后续会再过一道 DOMPurify。
+  // Bug #121: 限长 + 过滤控制字符，避免 XSS 向量与排版错乱。
   name: z
     .string()
     .min(1, '请输入姓名')
@@ -492,16 +490,18 @@ app.post('/auth/register', rateLimit(5, 60_000), zValidator('json', registerSche
     const classRecord = await db.query.classes.findFirst({
       where: and(eq(classes.code, classCode), eq(classes.schoolId, schoolId)),
     });
-    if (classRecord) {
-      await db.insert(classEnrollments).values({
-        id: randomUUID(),
-        classId: classRecord.id,
-        userId,
-        // 注册 schema 已强制 role=STUDENT（防越权），此处恒为 'student'
-        role: 'student',
-        createdAt: now,
-      });
+    // Bug #UX-4.3: classCode 无效时返回 400 而非静默忽略，避免用户误以为已加入班级。
+    if (!classRecord) {
+      return c.json({ success: false, error: '班级代码无效，请检查后重试' }, 400);
     }
+    await db.insert(classEnrollments).values({
+      id: randomUUID(),
+      classId: classRecord.id,
+      userId,
+      // 注册 schema 已强制 role=STUDENT（防越权），此处恒为 'student'
+      role: 'student',
+      createdAt: now,
+    });
   }
 
   const session = await lucia.createSession(userId, {});
@@ -700,10 +700,11 @@ app.post(
     const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
     const token = randomUUID();
 
+    // Bug #SEC-1.2: 存储 SHA-256 哈希而非明文，DB 泄露不暴露可用 token。
     await db.insert(apiTokens).values({
       id: randomUUID(),
       userId: user.id,
-      token,
+      token: hashToken(token),
       platform,
       deviceName: deviceName ?? null,
       expiresAt,
@@ -982,9 +983,21 @@ app.post(
       })
       .returning();
 
-    // 修复 Bug #26：先入队成功再提交 essay，避免 Redis 不可用时留下永远 pending 的孤儿数据。
-    // 反之若先 INSERT essay，再 addCorrectionJob 抛错，essay 已被持久化却永远不会被批改。
-    await addCorrectionJob(essayId);
+    // Bug #SEC-3.1: 入队失败时将 essay 标记为 failed，避免永远 pending 的孤儿记录。
+    // 用户可通过 /essays/:id/retry 重新触发批改。
+    try {
+      await addCorrectionJob(essayId);
+    } catch (enqueueErr) {
+      routesLogger.error({ essayId, err: enqueueErr }, '[API /essays] addCorrectionJob failed');
+      await db
+        .update(essays)
+        .set({ status: 'failed', updatedAt: new Date().toISOString() })
+        .where(eq(essays.id, essayId));
+      return c.json(
+        { success: false, error: '作文已保存，但批改队列暂不可用，请稍后重试' },
+        503,
+      );
+    }
 
     return c.json({ success: true, data: essay });
   },
@@ -1699,15 +1712,17 @@ app.get(
     });
     const studentIds = enrollments.map((e) => e.userId);
 
-    // 3. 获取班级所有已批改作文
-    const allEssays =
-      studentIds.length > 0
-        ? await db.query.essays.findMany({
-            where: inArray(essays.studentId, studentIds),
-            with: { correction: true, task: true },
-          })
-        : [];
-    const completedEssays = allEssays.filter((e) => e.status === 'completed' && e.correction);
+    // Bug #PERF-2.3: 60s 缓存，避免教师频繁切换页面时重复加载全量作文 + correction。
+    const data = await memoizeAsync(`teacher_analytics:${classId}`, 60_000, async () => {
+      // 3. 获取班级所有已批改作文
+      const allEssays =
+        studentIds.length > 0
+          ? await db.query.essays.findMany({
+              where: inArray(essays.studentId, studentIds),
+              with: { correction: true, task: true },
+            })
+          : [];
+      const completedEssays = allEssays.filter((e) => e.status === 'completed' && e.correction);
 
     // 4. 平均分趋势：按 task 分组
     const taskMap = new Map<string, { taskTitle: string; scores: number[] }>();
@@ -1769,10 +1784,21 @@ app.get(
 
     const averageScore =
       allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : null;
+
+      return {
+        totalEssays: completedEssays.length,
+        averageScore,
+        scoreTrend,
+        scoreDistribution,
+        topErrors,
+        topicTypeComparison,
+      };
+    });
+
     const duration = Date.now() - start;
 
     routesLogger.info(
-      { userId: user.id, classId: classId, essays: completedEssays.length, duration: duration },
+      { userId: user.id, classId: classId, essays: data.totalEssays, duration: duration },
       '[API /teacher/analytics/class]',
     );
 
@@ -1782,12 +1808,7 @@ app.get(
         classId,
         className: cls.name,
         totalStudents: studentIds.length,
-        totalEssays: completedEssays.length,
-        averageScore,
-        scoreTrend,
-        scoreDistribution,
-        topErrors,
-        topicTypeComparison,
+        ...data,
       },
     });
   },
@@ -2058,30 +2079,26 @@ app.get(
         : [];
     const tagMap = new Map(tags.map((t) => [t.studentId, t.tag]));
 
-    // 获取每个学生的作文统计
+    // Bug #PERF-2.1: 改用 SQL GROUP BY 聚合，避免加载所有学生全部作文到内存。
     const essayStats = new Map<
       string,
-      { count: number; avgScore: number | null; scores: number[] }
+      { count: number; avgScore: number | null }
     >();
     if (studentIds.length > 0) {
-      const allEssays = await db.query.essays.findMany({
-        where: inArray(essays.studentId, studentIds),
-        columns: { studentId: true, totalScore: true, status: true },
-      });
-      for (const e of allEssays) {
-        let stat = essayStats.get(e.studentId);
-        if (!stat) {
-          stat = { count: 0, avgScore: null, scores: [] };
-          essayStats.set(e.studentId, stat);
-        }
-        stat.count++;
-        if (e.totalScore !== null) stat.scores.push(e.totalScore);
-      }
-      for (const stat of essayStats.values()) {
-        stat.avgScore =
-          stat.scores.length > 0
-            ? stat.scores.reduce((a, b) => a + b, 0) / stat.scores.length
-            : null;
+      const statsRows = await db
+        .select({
+          studentId: essays.studentId,
+          count: count(essays.id),
+          avgScore: sql<number | null>`avg(${essays.totalScore})`,
+        })
+        .from(essays)
+        .where(inArray(essays.studentId, studentIds))
+        .groupBy(essays.studentId);
+      for (const row of statsRows) {
+        essayStats.set(row.studentId, {
+          count: row.count,
+          avgScore: row.avgScore !== null ? Number(row.avgScore) : null,
+        });
       }
     }
 
@@ -2325,17 +2342,28 @@ app.post(
         const userId = randomUUID();
         const password = generateRandomPassword();
         const passwordHash = await bcrypt.hash(password, 10);
+        // Bug #SEC-3.2: 将 user INSERT + enrollment INSERT 包裹在事务中，
+        // 避免 user 创建成功但 enrollment 失败时留下未分班的孤儿用户。
         try {
-          await db.insert(users).values({
-            id: userId,
-            email,
-            passwordHash,
-            name,
-            role: UserRole.STUDENT,
-            schoolId: cls.schoolId,
-            studentNo: studentNo || null,
-            createdAt: now,
-            updatedAt: now,
+          await db.transaction(async (tx) => {
+            await tx.insert(users).values({
+              id: userId,
+              email,
+              passwordHash,
+              name,
+              role: UserRole.STUDENT,
+              schoolId: cls.schoolId,
+              studentNo: studentNo || null,
+              createdAt: now,
+              updatedAt: now,
+            });
+            await tx.insert(classEnrollments).values({
+              id: randomUUID(),
+              classId,
+              userId,
+              role: 'student',
+              createdAt: now,
+            });
           });
         } catch (insertErr) {
           const msg = insertErr instanceof Error ? insertErr.message : String(insertErr);
@@ -2351,13 +2379,6 @@ app.post(
           }
           throw insertErr;
         }
-        await db.insert(classEnrollments).values({
-          id: randomUUID(),
-          classId,
-          userId,
-          role: 'student',
-          createdAt: now,
-        });
         results.push({ line: i + 1, name, email, success: true, password });
         successCount++;
       } catch (err) {
@@ -2753,10 +2774,19 @@ function safeJsonObject(s: string | null | undefined): Record<string, unknown> {
 }
 
 async function syncStudentErrorBook(studentId: string): Promise<number> {
+  // Bug #PERF-2.5: 增量同步 — 仅加载尚未出现在 errorBooks 中的 correction 对应的作文，
+  // 避免每次全量扫描学生所有 completed 作文 + correction。
+  const syncedCorrectionIds = await db
+    .selectDistinct({ correctionId: errorBooks.correctionId })
+    .from(errorBooks)
+    .where(eq(errorBooks.studentId, studentId));
+  const syncedSet = new Set(syncedCorrectionIds.map((r) => r.correctionId));
+
   const completedEssays = await db.query.essays.findMany({
     where: and(eq(essays.studentId, studentId), eq(essays.status, 'completed')),
     with: { correction: true },
   });
+
   const existing = await db.query.errorBooks.findMany({
     where: eq(errorBooks.studentId, studentId),
     columns: { correctionId: true, original: true },
@@ -2781,6 +2811,8 @@ async function syncStudentErrorBook(studentId: string): Promise<number> {
   for (const essay of completedEssays) {
     const correction = essay.correction;
     if (!correction) continue;
+    // 跳过已完全同步的 correction（增量优化核心）
+    if (syncedSet.has(correction.id)) continue;
     let errors: unknown[] = [];
     try {
       const parsed = JSON.parse(correction.errors ?? '[]');
@@ -3663,23 +3695,16 @@ app.get(
       });
       const peerIds = peerEnrollments.map((e) => e.userId).filter((id) => id !== user.id);
       if (peerIds.length > 0) {
-        const peerEssays = await db.query.essays.findMany({
-          where: and(inArray(essays.studentId, peerIds), eq(essays.status, 'completed')),
-          columns: { studentId: true, totalScore: true },
-        });
-        const peerAvgMap = new Map<string, number[]>();
-        for (const e of peerEssays) {
-          if (e.totalScore === null) continue;
-          let arr = peerAvgMap.get(e.studentId);
-          if (!arr) {
-            arr = [];
-            peerAvgMap.set(e.studentId, arr);
-          }
-          arr.push(e.totalScore);
-        }
-        const peerAverages = Array.from(peerAvgMap.values()).map(
-          (arr) => arr.reduce((a, b) => a + b, 0) / arr.length,
-        );
+        // Bug #PERF-2.2: 用 SQL GROUP BY + AVG 替代加载所有同学作文到内存。
+        const peerAvgRows = await db
+          .select({
+            studentId: essays.studentId,
+            avgScore: sql<number>`avg(${essays.totalScore})`,
+          })
+          .from(essays)
+          .where(and(inArray(essays.studentId, peerIds), eq(essays.status, 'completed')))
+          .groupBy(essays.studentId);
+        const peerAverages = peerAvgRows.map((r) => Number(r.avgScore));
         rank = calculateClassRank(averageScore, peerAverages);
       }
     }
@@ -4442,12 +4467,9 @@ app.delete(
           .update(users)
           .set({ isActive: false, updatedAt: now })
           .where(inArray(users.id, userIds));
-        // 失效这些用户的所有 session，强制下线
-        for (const uid of userIds) {
-          await lucia.invalidateUserSessions(uid).catch(() => {
-            /* session 可能本来就不存在，忽略 */
-          });
-        }
+        // Bug #SEC-3.3: 批量 DELETE 替代逐条循环 invalidateUserSessions，
+        // 500 用户从 500 次 DB 写降为 1 次。
+        await db.delete(sessions).where(inArray(sessions.userId, userIds));
       }
       routesLogger.info(
         { duration: Date.now() - startedAt },
@@ -4588,7 +4610,8 @@ async function notifyApiConfigUpdated(): Promise<void> {
   }
 }
 
-app.get('/admin/api-configs', authMiddleware, requireRole(UserRole.SUPER_ADMIN), async (c) => {
+// Bug #SEC-1.5: 补充限流，防止 admin 读端点被脚本高频刷。
+app.get('/admin/api-configs', rateLimit(20, 60_000), rateLimit(500, 86_400_000), authMiddleware, requireRole(UserRole.SUPER_ADMIN), async (c) => {
   const user = c.get('user');
   const startedAt = Date.now();
   routesLogger.info({ userId: user.id }, '[API /admin/api-configs]');
@@ -4793,7 +4816,7 @@ const modelRoutesUpdateSchema = z.object({
     .max(CORRECTION_STAGES.length),
 });
 
-app.get('/admin/model-routes', authMiddleware, requireRole(UserRole.SUPER_ADMIN), async (c) => {
+app.get('/admin/model-routes', rateLimit(20, 60_000), rateLimit(500, 86_400_000), authMiddleware, requireRole(UserRole.SUPER_ADMIN), async (c) => {
   const user = c.get('user');
   const startedAt = Date.now();
   routesLogger.info({ userId: user.id }, '[API /admin/model-routes]');
@@ -4870,30 +4893,33 @@ app.put(
       }
 
       const now = new Date().toISOString();
-      for (const route of body.routes) {
-        if (route.apiConfigId === null) {
-          await db.delete(modelRoutes).where(eq(modelRoutes.stage, route.stage));
-          continue;
-        }
-        const existing = await db.query.modelRoutes.findFirst({
-          where: eq(modelRoutes.stage, route.stage),
-          columns: { id: true },
-        });
-        if (existing) {
-          await db
-            .update(modelRoutes)
-            .set({ apiConfigId: route.apiConfigId, updatedAt: now })
-            .where(eq(modelRoutes.id, existing.id));
-        } else {
-          await db.insert(modelRoutes).values({
-            id: randomUUID(),
-            stage: route.stage,
-            apiConfigId: route.apiConfigId,
-            createdAt: now,
-            updatedAt: now,
+      // Bug #SEC-3.4: 包裹事务，避免循环中途失败导致路由表处于不一致状态。
+      await db.transaction(async (tx) => {
+        for (const route of body.routes) {
+          if (route.apiConfigId === null) {
+            await tx.delete(modelRoutes).where(eq(modelRoutes.stage, route.stage));
+            continue;
+          }
+          const existing = await tx.query.modelRoutes.findFirst({
+            where: eq(modelRoutes.stage, route.stage),
+            columns: { id: true },
           });
+          if (existing) {
+            await tx
+              .update(modelRoutes)
+              .set({ apiConfigId: route.apiConfigId, updatedAt: now })
+              .where(eq(modelRoutes.id, existing.id));
+          } else {
+            await tx.insert(modelRoutes).values({
+              id: randomUUID(),
+              stage: route.stage,
+              apiConfigId: route.apiConfigId,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
         }
-      }
+      });
 
       routesLogger.info({ duration: Date.now() - startedAt }, '[API /admin/model-routes PUT] exit');
       // 路由变更同样触发热更新（web 缓存失效 + Redis 通知 worker）
@@ -5006,7 +5032,7 @@ const announcementCreateSchema = z.object({
 
 const announcementUpdateSchema = announcementCreateSchema.partial();
 
-app.get('/admin/announcements', authMiddleware, requireRole(UserRole.SUPER_ADMIN), async (c) => {
+app.get('/admin/announcements', rateLimit(20, 60_000), rateLimit(500, 86_400_000), authMiddleware, requireRole(UserRole.SUPER_ADMIN), async (c) => {
   const user = c.get('user');
   const startedAt = Date.now();
   routesLogger.info({ userId: user.id }, '[API /admin/announcements]');

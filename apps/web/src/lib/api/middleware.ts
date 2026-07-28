@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { lucia } from '@/lib/auth';
 import { apiTokens, db } from '@betterwrite/db';
 import { type UserRoleType, hasRequiredRole } from '@betterwrite/shared';
@@ -5,6 +6,14 @@ import { and, eq, gt } from 'drizzle-orm';
 import { createMiddleware } from 'hono/factory';
 import { HTTPException } from 'hono/http-exception';
 import { cookies } from 'next/headers';
+
+/**
+ * Bug #SEC-1.2: 将明文 token 转为 SHA-256 哈希后存储/比对。
+ * DB 泄露时攻击者无法反推原始 token。
+ */
+export function hashToken(raw: string): string {
+  return createHash('sha256').update(raw).digest('hex');
+}
 
 export interface AuthVariables {
   user: {
@@ -40,9 +49,10 @@ export const authMiddleware = createMiddleware<{ Variables: AuthVariables }>(asy
   const authHeader = c.req.header('authorization');
   if (authHeader?.startsWith('Bearer ')) {
     const token = authHeader.slice(7);
+    const tokenHash = hashToken(token);
     const now = new Date().toISOString();
     const record = await db.query.apiTokens.findFirst({
-      where: and(eq(apiTokens.token, token), gt(apiTokens.expiresAt, now)),
+      where: and(eq(apiTokens.token, tokenHash), gt(apiTokens.expiresAt, now)),
       with: { user: true },
     });
     if (!record || !record.user || !record.user.isActive) {
@@ -126,11 +136,3 @@ export const requireRole = (...allowedRoles: UserRoleType[]) => {
     await next();
   });
 };
-
-export const requireActiveUser = createMiddleware<{ Variables: AuthVariables }>(async (c, next) => {
-  const user = c.get('user');
-  if (!user) {
-    throw new HTTPException(401, { message: '请先登录' });
-  }
-  await next();
-});

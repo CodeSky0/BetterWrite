@@ -49,30 +49,51 @@ export type {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const { headers: callerHeaders, ...restOptions } = options ?? {};
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...restOptions,
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...((callerHeaders as Record<string, string>) ?? {}),
-    },
-  });
+// Bug #UX-4.1: 请求超时（30s），避免慢网络用户无限等待。
+const REQUEST_TIMEOUT_MS = 30_000;
 
-  if (!res.ok) {
-    let errorMessage = `请求失败 (${res.status})`;
-    try {
-      const body = (await res.json()) as { error?: string };
-      if (body?.error) errorMessage = body.error;
-    } catch {
-      // 响应体不是 JSON（如网关返回的 HTML 错误页）
-    }
-    throw new Error(errorMessage);
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const { headers: callerHeaders, signal: callerSignal, ...restOptions } = options ?? {};
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  // 如果调用方也传了 signal，联动取消
+  if (callerSignal) {
+    callerSignal.addEventListener('abort', () => controller.abort(), { once: true });
   }
 
-  const data = (await res.json()) as T;
-  return data;
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...restOptions,
+      credentials: 'include',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...((callerHeaders as Record<string, string>) ?? {}),
+      },
+    });
+
+    if (!res.ok) {
+      let errorMessage = `请求失败 (${res.status})`;
+      try {
+        const body = (await res.json()) as { error?: string };
+        if (body?.error) errorMessage = body.error;
+      } catch {
+        // 响应体不是 JSON（如网关返回的 HTML 错误页）
+      }
+      throw new Error(errorMessage);
+    }
+
+    const data = (await res.json()) as T;
+    return data;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('请求超时，请检查网络后重试');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export const fetcher = {

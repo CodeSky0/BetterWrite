@@ -122,6 +122,23 @@ export const useAuth = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
+    // Bug #UX-4.2: 登出时先尝试撤销服务端 token，防止设备丢失后 token 仍有效 90 天。
+    // 网络失败不阻塞登出流程 — 本地清理始终执行。
+    try {
+      const platform = Platform.OS === 'ios' ? 'ios' : 'android';
+      const deviceName = Device.deviceName ?? 'unknown';
+      const result = await fetcher.listTokens();
+      if (result.success && result.data) {
+        const current = result.data.find(
+          (t) => t.platform === platform && t.deviceName === deviceName,
+        );
+        if (current) {
+          await fetcher.revokeToken(current.id);
+        }
+      }
+    } catch (err) {
+      console.warn('[AuthStore] revoke token on logout failed (non-blocking):', err);
+    }
     await clearStoredToken();
     await clearPersistedUser();
     set({ user: null, token: null, error: null });
