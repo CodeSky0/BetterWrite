@@ -57,6 +57,11 @@ jobs:
 
       - name: Build
         run: pnpm build
+        env:
+          DATABASE_URL: file:../../packages/db/local.db
+          NEXTAUTH_SECRET: ci-placeholder-secret-min-32-chars-long-enough!!
+          REDIS_URL: redis://localhost:6379
+          ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
 
   docker:
     name: Docker Build
