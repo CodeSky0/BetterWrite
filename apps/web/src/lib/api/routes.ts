@@ -84,7 +84,7 @@ import { memoizeAsync } from './cache';
 import { authMiddleware, hashToken, requireRole } from './middleware';
 import type { AuthVariables } from './middleware';
 import { addCorrectionJob, correctionQueue } from './queue';
-import { rateLimit, resolveClientIp as _resolveClientIp } from './rate-limiter';
+import { resolveClientIp as _resolveClientIp, rateLimit } from './rate-limiter';
 import { getRedis, pingRedis } from './redis';
 
 const app = new Hono<{ Variables: AuthVariables }>().basePath('/api');
@@ -993,10 +993,7 @@ app.post(
         .update(essays)
         .set({ status: 'failed', updatedAt: new Date().toISOString() })
         .where(eq(essays.id, essayId));
-      return c.json(
-        { success: false, error: '作文已保存，但批改队列暂不可用，请稍后重试' },
-        503,
-      );
+      return c.json({ success: false, error: '作文已保存，但批改队列暂不可用，请稍后重试' }, 503);
     }
 
     return c.json({ success: true, data: essay });
@@ -1724,66 +1721,66 @@ app.get(
           : [];
       const completedEssays = allEssays.filter((e) => e.status === 'completed' && e.correction);
 
-    // 4. 平均分趋势：按 task 分组
-    const taskMap = new Map<string, { taskTitle: string; scores: number[] }>();
-    for (const e of completedEssays) {
-      const taskId = e.taskId ?? 'no-task';
-      const taskTitle = e.task?.title ?? '未命名任务';
-      if (!taskMap.has(taskId)) taskMap.set(taskId, { taskTitle, scores: [] });
-      if (e.totalScore !== null) taskMap.get(taskId)?.scores.push(e.totalScore);
-    }
-    const scoreTrend = Array.from(taskMap.entries())
-      .map(([taskId, { taskTitle, scores }]) => ({
-        taskId,
-        taskTitle,
-        averageScore: scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0,
-        essayCount: scores.length,
-      }))
-      .sort((a, b) => b.essayCount - a.essayCount)
-      .slice(0, 10);
-
-    // 5. 分数分布
-    const allScores = completedEssays
-      .map((e) => e.totalScore)
-      .filter((s): s is number => s !== null);
-    const scoreDistribution = calculateScoreDistribution(allScores);
-
-    // 6. 高频错误 Top10
-    const allErrors: Array<{ type: string }> = [];
-    for (const e of completedEssays) {
-      try {
-        const errs = JSON.parse(e.correction?.errors ?? '[]');
-        if (Array.isArray(errs)) {
-          for (const err of errs) {
-            if (err.type) allErrors.push({ type: err.type });
-          }
-        }
-      } catch {}
-    }
-    const topErrors = calculateErrorStats(allErrors).slice(0, 10);
-
-    // 7. 体裁对比
-    const topicTypeMap = new Map<string, { scores: number[]; count: number }>();
-    for (const e of completedEssays) {
-      const tt = e.task?.topicType ?? 'unknown';
-      let entry = topicTypeMap.get(tt);
-      if (!entry) {
-        entry = { scores: [], count: 0 };
-        topicTypeMap.set(tt, entry);
+      // 4. 平均分趋势：按 task 分组
+      const taskMap = new Map<string, { taskTitle: string; scores: number[] }>();
+      for (const e of completedEssays) {
+        const taskId = e.taskId ?? 'no-task';
+        const taskTitle = e.task?.title ?? '未命名任务';
+        if (!taskMap.has(taskId)) taskMap.set(taskId, { taskTitle, scores: [] });
+        if (e.totalScore !== null) taskMap.get(taskId)?.scores.push(e.totalScore);
       }
-      entry.count++;
-      if (e.totalScore !== null) entry.scores.push(e.totalScore);
-    }
-    const topicTypeComparison = Array.from(topicTypeMap.entries()).map(
-      ([topicType, { scores, count }]) => ({
-        topicType,
-        averageScore: scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0,
-        essayCount: count,
-      }),
-    );
+      const scoreTrend = Array.from(taskMap.entries())
+        .map(([taskId, { taskTitle, scores }]) => ({
+          taskId,
+          taskTitle,
+          averageScore: scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0,
+          essayCount: scores.length,
+        }))
+        .sort((a, b) => b.essayCount - a.essayCount)
+        .slice(0, 10);
 
-    const averageScore =
-      allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : null;
+      // 5. 分数分布
+      const allScores = completedEssays
+        .map((e) => e.totalScore)
+        .filter((s): s is number => s !== null);
+      const scoreDistribution = calculateScoreDistribution(allScores);
+
+      // 6. 高频错误 Top10
+      const allErrors: Array<{ type: string }> = [];
+      for (const e of completedEssays) {
+        try {
+          const errs = JSON.parse(e.correction?.errors ?? '[]');
+          if (Array.isArray(errs)) {
+            for (const err of errs) {
+              if (err.type) allErrors.push({ type: err.type });
+            }
+          }
+        } catch {}
+      }
+      const topErrors = calculateErrorStats(allErrors).slice(0, 10);
+
+      // 7. 体裁对比
+      const topicTypeMap = new Map<string, { scores: number[]; count: number }>();
+      for (const e of completedEssays) {
+        const tt = e.task?.topicType ?? 'unknown';
+        let entry = topicTypeMap.get(tt);
+        if (!entry) {
+          entry = { scores: [], count: 0 };
+          topicTypeMap.set(tt, entry);
+        }
+        entry.count++;
+        if (e.totalScore !== null) entry.scores.push(e.totalScore);
+      }
+      const topicTypeComparison = Array.from(topicTypeMap.entries()).map(
+        ([topicType, { scores, count }]) => ({
+          topicType,
+          averageScore: scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0,
+          essayCount: count,
+        }),
+      );
+
+      const averageScore =
+        allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : null;
 
       return {
         totalEssays: completedEssays.length,
@@ -2080,10 +2077,7 @@ app.get(
     const tagMap = new Map(tags.map((t) => [t.studentId, t.tag]));
 
     // Bug #PERF-2.1: 改用 SQL GROUP BY 聚合，避免加载所有学生全部作文到内存。
-    const essayStats = new Map<
-      string,
-      { count: number; avgScore: number | null }
-    >();
+    const essayStats = new Map<string, { count: number; avgScore: number | null }>();
     if (studentIds.length > 0) {
       const statsRows = await db
         .select({
@@ -4611,46 +4605,53 @@ async function notifyApiConfigUpdated(): Promise<void> {
 }
 
 // Bug #SEC-1.5: 补充限流，防止 admin 读端点被脚本高频刷。
-app.get('/admin/api-configs', rateLimit(20, 60_000), rateLimit(500, 86_400_000), authMiddleware, requireRole(UserRole.SUPER_ADMIN), async (c) => {
-  const user = c.get('user');
-  const startedAt = Date.now();
-  routesLogger.info({ userId: user.id }, '[API /admin/api-configs]');
+app.get(
+  '/admin/api-configs',
+  rateLimit(20, 60_000),
+  rateLimit(500, 86_400_000),
+  authMiddleware,
+  requireRole(UserRole.SUPER_ADMIN),
+  async (c) => {
+    const user = c.get('user');
+    const startedAt = Date.now();
+    routesLogger.info({ userId: user.id }, '[API /admin/api-configs]');
 
-  try {
-    const rows = await db.query.apiConfigs.findMany({ orderBy: desc(apiConfigs.priority) });
-    const data: ApiConfigItem[] = rows.map((r) => ({
-      id: r.id,
-      provider: r.provider,
-      apiKeyMasked: (() => {
-        try {
-          return maskKey(decrypt(r.apiKeyEncrypted));
-        } catch {
-          return '****';
-        }
-      })(),
-      baseUrl: r.baseUrl,
-      model: r.model,
-      isActive: r.isActive,
-      priority: r.priority,
-      maxTokens: r.maxTokens,
-      temperature: r.temperature,
-      rateLimitPerMin: r.rateLimitPerMin,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-    }));
-    routesLogger.info(
-      { duration: Date.now() - startedAt, count: data.length },
-      '[API /admin/api-configs] exit',
-    );
-    return c.json({ success: true, data });
-  } catch (err) {
-    routesLogger.error(
-      { err: err instanceof Error ? err.message : 'unknown' },
-      '[API /admin/api-configs] error:',
-    );
-    return c.json({ success: false, error: '获取 API 配置失败' }, 500);
-  }
-});
+    try {
+      const rows = await db.query.apiConfigs.findMany({ orderBy: desc(apiConfigs.priority) });
+      const data: ApiConfigItem[] = rows.map((r) => ({
+        id: r.id,
+        provider: r.provider,
+        apiKeyMasked: (() => {
+          try {
+            return maskKey(decrypt(r.apiKeyEncrypted));
+          } catch {
+            return '****';
+          }
+        })(),
+        baseUrl: r.baseUrl,
+        model: r.model,
+        isActive: r.isActive,
+        priority: r.priority,
+        maxTokens: r.maxTokens,
+        temperature: r.temperature,
+        rateLimitPerMin: r.rateLimitPerMin,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      }));
+      routesLogger.info(
+        { duration: Date.now() - startedAt, count: data.length },
+        '[API /admin/api-configs] exit',
+      );
+      return c.json({ success: true, data });
+    } catch (err) {
+      routesLogger.error(
+        { err: err instanceof Error ? err.message : 'unknown' },
+        '[API /admin/api-configs] error:',
+      );
+      return c.json({ success: false, error: '获取 API 配置失败' }, 500);
+    }
+  },
+);
 
 app.post(
   '/admin/api-configs',
@@ -4816,47 +4817,54 @@ const modelRoutesUpdateSchema = z.object({
     .max(CORRECTION_STAGES.length),
 });
 
-app.get('/admin/model-routes', rateLimit(20, 60_000), rateLimit(500, 86_400_000), authMiddleware, requireRole(UserRole.SUPER_ADMIN), async (c) => {
-  const user = c.get('user');
-  const startedAt = Date.now();
-  routesLogger.info({ userId: user.id }, '[API /admin/model-routes]');
+app.get(
+  '/admin/model-routes',
+  rateLimit(20, 60_000),
+  rateLimit(500, 86_400_000),
+  authMiddleware,
+  requireRole(UserRole.SUPER_ADMIN),
+  async (c) => {
+    const user = c.get('user');
+    const startedAt = Date.now();
+    routesLogger.info({ userId: user.id }, '[API /admin/model-routes]');
 
-  try {
-    const rows = await db
-      .select({
-        stage: modelRoutes.stage,
-        apiConfigId: modelRoutes.apiConfigId,
-        provider: apiConfigs.provider,
-        model: apiConfigs.model,
-        updatedAt: modelRoutes.updatedAt,
-      })
-      .from(modelRoutes)
-      .leftJoin(apiConfigs, eq(modelRoutes.apiConfigId, apiConfigs.id));
-    const byStage = new Map(rows.map((r) => [r.stage, r]));
-    // 未配置的环节以 apiConfigId=null 补全，保证前端始终拿到全部环节
-    const data: ModelRouteItem[] = CORRECTION_STAGES.map(({ value }) => {
-      const row = byStage.get(value);
-      return {
-        stage: value,
-        apiConfigId: row?.apiConfigId ?? null,
-        provider: row?.provider ?? null,
-        model: row?.model ?? null,
-        updatedAt: row?.updatedAt ?? null,
-      };
-    });
-    routesLogger.info(
-      { duration: Date.now() - startedAt, count: data.length },
-      '[API /admin/model-routes] exit',
-    );
-    return c.json({ success: true, data });
-  } catch (err) {
-    routesLogger.error(
-      { err: err instanceof Error ? err.message : 'unknown' },
-      '[API /admin/model-routes] error:',
-    );
-    return c.json({ success: false, error: '获取模型路由失败' }, 500);
-  }
-});
+    try {
+      const rows = await db
+        .select({
+          stage: modelRoutes.stage,
+          apiConfigId: modelRoutes.apiConfigId,
+          provider: apiConfigs.provider,
+          model: apiConfigs.model,
+          updatedAt: modelRoutes.updatedAt,
+        })
+        .from(modelRoutes)
+        .leftJoin(apiConfigs, eq(modelRoutes.apiConfigId, apiConfigs.id));
+      const byStage = new Map(rows.map((r) => [r.stage, r]));
+      // 未配置的环节以 apiConfigId=null 补全，保证前端始终拿到全部环节
+      const data: ModelRouteItem[] = CORRECTION_STAGES.map(({ value }) => {
+        const row = byStage.get(value);
+        return {
+          stage: value,
+          apiConfigId: row?.apiConfigId ?? null,
+          provider: row?.provider ?? null,
+          model: row?.model ?? null,
+          updatedAt: row?.updatedAt ?? null,
+        };
+      });
+      routesLogger.info(
+        { duration: Date.now() - startedAt, count: data.length },
+        '[API /admin/model-routes] exit',
+      );
+      return c.json({ success: true, data });
+    } catch (err) {
+      routesLogger.error(
+        { err: err instanceof Error ? err.message : 'unknown' },
+        '[API /admin/model-routes] error:',
+      );
+      return c.json({ success: false, error: '获取模型路由失败' }, 500);
+    }
+  },
+);
 
 app.put(
   '/admin/model-routes',
@@ -5032,47 +5040,54 @@ const announcementCreateSchema = z.object({
 
 const announcementUpdateSchema = announcementCreateSchema.partial();
 
-app.get('/admin/announcements', rateLimit(20, 60_000), rateLimit(500, 86_400_000), authMiddleware, requireRole(UserRole.SUPER_ADMIN), async (c) => {
-  const user = c.get('user');
-  const startedAt = Date.now();
-  routesLogger.info({ userId: user.id }, '[API /admin/announcements]');
+app.get(
+  '/admin/announcements',
+  rateLimit(20, 60_000),
+  rateLimit(500, 86_400_000),
+  authMiddleware,
+  requireRole(UserRole.SUPER_ADMIN),
+  async (c) => {
+    const user = c.get('user');
+    const startedAt = Date.now();
+    routesLogger.info({ userId: user.id }, '[API /admin/announcements]');
 
-  const limit = Math.max(1, Math.min(200, parsePositiveInt(c.req.query('limit'), 50, 200)));
-  const offset = parseNonNegativeInt(c.req.query('offset'), 0);
+    const limit = Math.max(1, Math.min(200, parsePositiveInt(c.req.query('limit'), 50, 200)));
+    const offset = parseNonNegativeInt(c.req.query('offset'), 0);
 
-  try {
-    const rows = await db.query.announcements.findMany({
-      with: { creator: true },
-      orderBy: desc(announcements.createdAt),
-      limit,
-      offset,
-    });
-    const totalRow = await db.select({ c: count() }).from(announcements);
-    const total = totalRow[0]?.c ?? 0;
-    const data: AnnouncementItem[] = rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      content: r.content,
-      targetRole: r.targetRole ?? 'all',
-      isActive: r.isActive,
-      createdBy: r.createdBy,
-      creatorName: r.creator?.name ?? null,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-    }));
-    routesLogger.info(
-      { duration: Date.now() - startedAt, count: data.length },
-      '[API /admin/announcements] exit',
-    );
-    return c.json({ success: true, data, total, limit, offset });
-  } catch (err) {
-    routesLogger.error(
-      { err: err instanceof Error ? err.message : 'unknown' },
-      '[API /admin/announcements] error:',
-    );
-    return c.json({ success: false, error: '获取公告列表失败' }, 500);
-  }
-});
+    try {
+      const rows = await db.query.announcements.findMany({
+        with: { creator: true },
+        orderBy: desc(announcements.createdAt),
+        limit,
+        offset,
+      });
+      const totalRow = await db.select({ c: count() }).from(announcements);
+      const total = totalRow[0]?.c ?? 0;
+      const data: AnnouncementItem[] = rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        content: r.content,
+        targetRole: r.targetRole ?? 'all',
+        isActive: r.isActive,
+        createdBy: r.createdBy,
+        creatorName: r.creator?.name ?? null,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      }));
+      routesLogger.info(
+        { duration: Date.now() - startedAt, count: data.length },
+        '[API /admin/announcements] exit',
+      );
+      return c.json({ success: true, data, total, limit, offset });
+    } catch (err) {
+      routesLogger.error(
+        { err: err instanceof Error ? err.message : 'unknown' },
+        '[API /admin/announcements] error:',
+      );
+      return c.json({ success: false, error: '获取公告列表失败' }, 500);
+    }
+  },
+);
 
 app.post(
   '/admin/announcements',
