@@ -1,3 +1,4 @@
+import { generateObject, generateText } from 'ai';
 import type { ZodSchema } from 'zod';
 
 export interface CompletionOptions {
@@ -18,6 +19,10 @@ export interface CacheStats {
   misses: number;
   hitRate: number;
 }
+
+// AI SDK client type - varies by provider (createOpenAI, createDeepSeek, etc.)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AIClientFactory = (...args: any[]) => (model: string) => any;
 
 export abstract class BaseAIProvider {
   abstract readonly name: string;
@@ -48,13 +53,39 @@ export abstract class BaseAIProvider {
     return Math.min(options?.maxOutputTokens ?? this.maxTokensCap, this.maxTokensCap);
   }
 
-  abstract complete(prompt: string, options?: CompletionOptions): Promise<string>;
+  protected buildAbortSignal(options?: CompletionOptions): AbortSignal {
+    return AbortSignal.timeout(options?.timeoutMs ?? DEFAULT_AI_TIMEOUT_MS);
+  }
 
-  abstract generateObject<T>(
+  // Subclasses must implement this to return their SDK client
+  protected abstract getClient(): (model: string) => any;
+
+  async complete(prompt: string, options?: CompletionOptions): Promise<string> {
+    const { text } = await generateText({
+      model: this.getClient()(options?.model ?? this.defaultModel),
+      prompt,
+      temperature: this.resolveTemperature(options),
+      maxOutputTokens: this.resolveMaxOutputTokens(options),
+      abortSignal: this.buildAbortSignal(options),
+    });
+    return text;
+  }
+
+  async generateObject<T>(
     prompt: string,
     schema: ZodSchema<T>,
     options?: CompletionOptions,
-  ): Promise<T>;
+  ): Promise<T> {
+    const { object } = await generateObject({
+      model: this.getClient()(options?.model ?? this.defaultModel),
+      prompt,
+      schema,
+      temperature: this.resolveTemperature(options),
+      maxOutputTokens: this.resolveMaxOutputTokens(options),
+      abortSignal: this.buildAbortSignal(options),
+    });
+    return object;
+  }
 
   async completeStructured<T>(
     prompt: string,

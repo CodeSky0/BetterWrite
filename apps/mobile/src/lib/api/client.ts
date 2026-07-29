@@ -1,5 +1,8 @@
+import type { ApiResponse } from '@betterwrite/shared';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
+
+export type { ApiResponse };
 
 const API_BASE =
   (Constants.expoConfig?.extra as { apiUrl?: string } | undefined)?.apiUrl ??
@@ -39,12 +42,6 @@ export async function clearStoredToken(): Promise<void> {
   } catch (err) {
     console.warn('[APIClient] clearStoredToken error:', err);
   }
-}
-
-export interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
 }
 
 export async function request<T>(path: string, options?: RequestInit): Promise<T> {

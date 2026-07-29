@@ -1,16 +1,17 @@
 'use client';
 
+import { AdminActions, AdminStatusBlock, AdminTableWrapper } from '@/components/admin/admin-shared';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { RoleGuard } from '@/components/layout/role-guard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { fetcher } from '@/lib/api/fetcher';
 import { clientLogger } from '@/lib/client-logger';
 import type { AnnouncementItem } from '@betterwrite/shared';
 import { UserRole } from '@betterwrite/shared';
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 interface AnnouncementFormState {
@@ -39,7 +40,7 @@ export default function AdminAnnouncementsPage() {
   const [items, setItems] = useState<AnnouncementItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
+  const [_modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<AnnouncementFormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -139,32 +140,14 @@ export default function AdminAnnouncementsPage() {
             </Button>
           </div>
 
-          {error && (
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-copy-14 text-error">{error}</p>
-              </CardContent>
-            </Card>
-          )}
-
-          {loading && <p className="text-copy-14 text-neutral-8">加载中...</p>}
-
-          {!loading && items.length === 0 && !error && (
-            <Card>
-              <CardContent className="p-8 text-center">
-                <p className="text-copy-14 text-neutral-8">暂无公告</p>
-              </CardContent>
-            </Card>
-          )}
+          <AdminStatusBlock error={error} loading={loading} empty={!loading && items.length === 0 && !error} emptyText="暂无公告" />
 
           {!loading && items.length > 0 && (
-            <Card>
+            <AdminTableWrapper>
               <CardHeader>
                 <CardTitle className="text-title-20">公告列表</CardTitle>
               </CardHeader>
-              <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-copy-14">
+              <table className="w-full">
                     <thead className="bg-neutral-2 text-neutral-8">
                       <tr>
                         <th className="text-left px-4 py-3 font-medium">标题</th>
@@ -192,24 +175,10 @@ export default function AdminAnnouncementsPage() {
                             {item.createdAt}
                           </td>
                           <td className="px-4 py-3">
-                            <div className="flex items-center justify-center gap-2">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => openEdit(item)}
-                                aria-label="编辑"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleDelete(item.id, item.title)}
-                                aria-label="删除"
-                              >
-                                <Trash2 className="w-4 h-4 text-error" />
-                              </Button>
-                            </div>
+                            <AdminActions
+                              onEdit={() => openEdit(item)}
+                              onDelete={() => handleDelete(item.id, item.title)}
+                            />
                           </td>
                         </tr>
                       ))}
@@ -217,17 +186,15 @@ export default function AdminAnnouncementsPage() {
                   </table>
                 </div>
               </CardContent>
-            </Card>
+            </AdminTableWrapper>
           )}
         </div>
 
-        {modalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <Card className="w-full max-w-lg max-h-[90vh] overflow-y-auto">
-              <CardContent className="p-6 space-y-4">
-                <h2 className="text-title-20 font-medium text-neutral-10">
-                  {editingId ? '编辑公告' : '发布公告'}
-                </h2>
+        <AdminModal
+          open={modalOpen}
+          title={editingId ? '编辑公告' : '发布公告'}
+          onClose={() => setModalOpen(false)}
+        >
                 <div className="space-y-3">
                   <div>
                     <span className="text-label-12 text-neutral-8">标题 *</span>
@@ -277,10 +244,7 @@ export default function AdminAnnouncementsPage() {
                     {saving ? '保存中...' : '保存'}
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+        </AdminModal>
       </DashboardLayout>
     </RoleGuard>
   );

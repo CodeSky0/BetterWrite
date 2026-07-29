@@ -42,8 +42,16 @@ export interface Essay {
   status: EssayStatusValue;
   totalScore: number | null;
   scoreTier: string | null;
+  correctionId: string | null;
+  teacherReview?: string | null;
+  teacherScore?: number | null;
   submittedAt: string;
   correctedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  task?: EssayTask | null;
+  correction?: Correction | null;
+  student?: { id: string; name: string; studentNo: string | null } | null;
 }
 
 export interface CorrectionError {

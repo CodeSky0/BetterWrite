@@ -9,6 +9,7 @@ import { fetcher } from '../../lib/api/fetcher';
 import { getDashboardPath, useAuth } from '../../lib/auth/store';
 import { useTheme } from '../../theme/dark-mode';
 import type { ThemeColors } from '../../theme/tokens';
+import { authStyles } from './auth-styles';
 
 interface RegisterForm {
   name: string;
@@ -64,15 +65,18 @@ export default function RegisterPage() {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={[styles.container, { backgroundColor: colors.bgPrimary }]}
+      style={[authStyles.container, { backgroundColor: colors.bgPrimary }]}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        <Text style={[styles.title, { color: colors.textPrimary }]}>创建账号</Text>
-        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+      <ScrollView
+        contentContainerStyle={authStyles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={[authStyles.title, { color: colors.textPrimary }]}>创建账号</Text>
+        <Text style={[authStyles.subtitle, { color: colors.textSecondary }]}>
           加入 BetterWrite 提升英语写作
         </Text>
 
-        <Card colors={colors} style={styles.card}>
+        <Card colors={colors} style={authStyles.card}>
           <Input
             label="姓名"
             value={form.name}
@@ -99,8 +103,8 @@ export default function RegisterPage() {
           />
 
           <View>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>身份</Text>
-            <View style={styles.roleRow}>
+            <Text style={[registerStyles.label, { color: colors.textSecondary }]}>身份</Text>
+            <View style={registerStyles.roleRow}>
               <RoleOption
                 label="学生"
                 selected={form.role === UserRole.STUDENT}
@@ -122,8 +126,8 @@ export default function RegisterPage() {
             </View>
           </View>
 
-          <View style={styles.codeRow}>
-            <View style={styles.codeInput}>
+          <View style={registerStyles.codeRow}>
+            <View style={registerStyles.codeInput}>
               <Input
                 label="学校代码"
                 value={form.schoolCode}
@@ -132,7 +136,7 @@ export default function RegisterPage() {
                 colors={colors}
               />
             </View>
-            <View style={styles.codeInput}>
+            <View style={registerStyles.codeInput}>
               <Input
                 label="班级代码"
                 value={form.classCode}
@@ -143,7 +147,9 @@ export default function RegisterPage() {
             </View>
           </View>
 
-          {error ? <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text> : null}
+          {error ? (
+            <Text style={[authStyles.errorText, { color: colors.error }]}>{error}</Text>
+          ) : null}
 
           <Button
             title={isLoading ? '注册中...' : '注册'}
@@ -154,10 +160,10 @@ export default function RegisterPage() {
           />
         </Card>
 
-        <View style={styles.footer}>
-          <Text style={[styles.footerText, { color: colors.textSecondary }]}>已有账号？</Text>
+        <View style={authStyles.footer}>
+          <Text style={[authStyles.footerText, { color: colors.textSecondary }]}>已有账号？</Text>
           <Text
-            style={[styles.link, { color: colors.accent }]}
+            style={[authStyles.link, { color: colors.accent }]}
             onPress={() => router.push('/(auth)/login')}
           >
             立即登录
@@ -190,30 +196,7 @@ function RoleOption({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    padding: 24,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 24,
-  },
-  card: {
-    width: '100%',
-    gap: 16,
-  },
+const registerStyles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '500',
@@ -229,22 +212,5 @@ const styles = StyleSheet.create({
   },
   codeInput: {
     flex: 1,
-  },
-  errorText: {
-    fontSize: 13,
-    textAlign: 'center',
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 20,
-    gap: 4,
-  },
-  footerText: {
-    fontSize: 14,
-  },
-  link: {
-    fontSize: 14,
-    fontWeight: '600',
   },
 });

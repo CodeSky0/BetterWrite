@@ -15,6 +15,7 @@ import { Card } from '../../../components/ui/Card';
 import { Loading } from '../../../components/ui/Loading';
 import { fetcher } from '../../../lib/api/fetcher';
 import { useTheme } from '../../../theme/dark-mode';
+import { editorStyles, pageStyles } from '../../../theme/page-styles';
 
 type Mode = 'polish' | 'upgrade' | 'synonym' | 'grammar';
 
@@ -214,12 +215,15 @@ export default function StudentAiAssistantPage() {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={[styles.container, { backgroundColor: colors.bgPrimary }]}
+      style={[pageStyles.container, { backgroundColor: colors.bgPrimary }]}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        <Text style={[styles.title, { color: colors.textPrimary }]}>AI 写作助手</Text>
+      <ScrollView
+        contentContainerStyle={pageStyles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={[assistantStyles.title, { color: colors.textPrimary }]}>AI 写作助手</Text>
 
-        <View style={styles.modeBar}>
+        <View style={assistantStyles.modeBar}>
           {modeOrder.map((m) => (
             <Button
               key={m}
@@ -232,9 +236,11 @@ export default function StudentAiAssistantPage() {
           ))}
         </View>
 
-        <Card colors={colors} style={styles.inputCard}>
-          <Text style={[styles.inputTitle, { color: colors.textPrimary }]}>{config.title}</Text>
-          <Text style={[styles.inputDesc, { color: colors.textSecondary }]}>
+        <Card colors={colors} style={assistantStyles.inputCard}>
+          <Text style={[assistantStyles.inputTitle, { color: colors.textPrimary }]}>
+            {config.title}
+          </Text>
+          <Text style={[assistantStyles.inputDesc, { color: colors.textSecondary }]}>
             {config.description}
           </Text>
           <TextInput
@@ -245,7 +251,7 @@ export default function StudentAiAssistantPage() {
             multiline
             textAlignVertical="top"
             style={[
-              styles.textarea,
+              editorStyles.textarea,
               {
                 color: colors.textPrimary,
                 backgroundColor: colors.bgElevated,
@@ -263,22 +269,24 @@ export default function StudentAiAssistantPage() {
             colors={colors}
           />
           {displayedError ? (
-            <Text style={[styles.errorText, { color: colors.error }]}>{displayedError}</Text>
+            <Text style={[pageStyles.errorText, { color: colors.error }]}>{displayedError}</Text>
           ) : null}
         </Card>
 
         {result !== null && (
-          <Card colors={colors} style={styles.resultCard}>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>AI 输出</Text>
-            <Text style={[styles.resultText, { color: colors.textPrimary }]}>{result}</Text>
+          <Card colors={colors} style={assistantStyles.resultCard}>
+            <Text style={[pageStyles.sectionTitle, { color: colors.textPrimary }]}>AI 输出</Text>
+            <Text style={[assistantStyles.resultText, { color: colors.textPrimary }]}>
+              {result}
+            </Text>
             {details.length > 0 && (
-              <View style={styles.detailsBox}>
+              <View style={assistantStyles.detailsBox}>
                 {details.map((d, i) => (
-                  <View key={`${d.label}-${i}`} style={styles.detailRow}>
-                    <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>
+                  <View key={`${d.label}-${i}`} style={assistantStyles.detailRow}>
+                    <Text style={[assistantStyles.detailLabel, { color: colors.textSecondary }]}>
                       {d.label}
                     </Text>
-                    <Text style={[styles.detailValue, { color: colors.textPrimary }]}>
+                    <Text style={[assistantStyles.detailValue, { color: colors.textPrimary }]}>
                       {d.value}
                     </Text>
                   </View>
@@ -288,14 +296,18 @@ export default function StudentAiAssistantPage() {
           </Card>
         )}
 
-        <Card colors={colors} style={styles.historyCard}>
-          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>历史记录</Text>
+        <Card colors={colors} style={assistantStyles.historyCard}>
+          <Text style={[pageStyles.sectionTitle, { color: colors.textPrimary }]}>历史记录</Text>
           {historyLoading && <Loading colors={colors} />}
           {historyError ? (
-            <Text style={[styles.historyError, { color: colors.error }]}>{historyError}</Text>
+            <Text style={[assistantStyles.historyError, { color: colors.error }]}>
+              {historyError}
+            </Text>
           ) : null}
           {!historyLoading && !historyError && history.length === 0 && (
-            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>暂无历史记录</Text>
+            <Text style={[pageStyles.emptyText, { color: colors.textSecondary }]}>
+              暂无历史记录
+            </Text>
           )}
           {history.map((item) => {
             const isOpen = expandedId === item.id;
@@ -303,7 +315,7 @@ export default function StudentAiAssistantPage() {
               <View
                 key={item.id}
                 style={[
-                  styles.historyItem,
+                  assistantStyles.historyItem,
                   { borderBottomColor: colors.border, borderBottomWidth: 1 },
                 ]}
               >
@@ -312,19 +324,19 @@ export default function StudentAiAssistantPage() {
                   variant="ghost"
                   onPress={() => setExpandedId(isOpen ? null : item.id)}
                   colors={colors}
-                  style={styles.historyButton}
+                  style={assistantStyles.historyButton}
                 >
-                  <View style={styles.historyItemHeader}>
-                    <View style={styles.historyBadges}>
+                  <View style={assistantStyles.historyItemHeader}>
+                    <View style={assistantStyles.historyBadges}>
                       <Badge variant="secondary" colors={colors}>
                         {item.mode}
                       </Badge>
-                      <Text style={[styles.historyDate, { color: colors.textTertiary }]}>
+                      <Text style={[assistantStyles.historyDate, { color: colors.textTertiary }]}>
                         {new Date(item.createdAt).toLocaleString()}
                       </Text>
                     </View>
                     <Text
-                      style={[styles.historyInput, { color: colors.textPrimary }]}
+                      style={[assistantStyles.historyInput, { color: colors.textPrimary }]}
                       numberOfLines={1}
                     >
                       {truncate(item.inputText, 40)}
@@ -332,9 +344,11 @@ export default function StudentAiAssistantPage() {
                   </View>
                 </Button>
                 {isOpen && (
-                  <View style={styles.historyOutput}>
-                    <Text style={[styles.outputLabel, { color: colors.textTertiary }]}>输出</Text>
-                    <Text style={[styles.outputText, { color: colors.textPrimary }]}>
+                  <View style={assistantStyles.historyOutput}>
+                    <Text style={[assistantStyles.outputLabel, { color: colors.textTertiary }]}>
+                      输出
+                    </Text>
+                    <Text style={[assistantStyles.outputText, { color: colors.textPrimary }]}>
                       {item.outputText}
                     </Text>
                   </View>
@@ -348,14 +362,7 @@ export default function StudentAiAssistantPage() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-    gap: 16,
-  },
+const assistantStyles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: '700',
@@ -375,24 +382,8 @@ const styles = StyleSheet.create({
   inputDesc: {
     fontSize: 13,
   },
-  textarea: {
-    minHeight: 140,
-    padding: 12,
-    fontSize: 15,
-    lineHeight: 22,
-    borderWidth: 1,
-    borderRadius: 8,
-  },
-  errorText: {
-    fontSize: 13,
-    textAlign: 'center',
-  },
   resultCard: {
     gap: 12,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
   },
   resultText: {
     fontSize: 15,
@@ -415,9 +406,6 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   historyError: {
-    fontSize: 14,
-  },
-  emptyText: {
     fontSize: 14,
   },
   historyItem: {

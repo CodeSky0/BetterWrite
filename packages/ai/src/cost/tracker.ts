@@ -112,81 +112,45 @@ export class CostTracker {
     return record;
   }
 
-  getTotalCost(timeRange: 'day' | 'week' | 'month' | 'all' = 'all'): number {
+  private getStartDate(timeRange: 'day' | 'week' | 'month' | 'all'): Date {
     const now = new Date();
-    let startDate: Date;
-
     switch (timeRange) {
       case 'day':
-        startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        break;
+        return new Date(now.getTime() - 24 * 60 * 60 * 1000);
       case 'week':
-        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        break;
+        return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       case 'month':
-        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        break;
+        return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
       default:
-        startDate = new Date(0);
+        return new Date(0);
     }
+  }
 
-    return this.records.filter((r) => r.timestamp >= startDate).reduce((sum, r) => sum + r.cost, 0);
+  private filterByTimeRange(timeRange: 'day' | 'week' | 'month' | 'all' = 'all'): CostRecord[] {
+    const startDate = this.getStartDate(timeRange);
+    return this.records.filter((r) => r.timestamp >= startDate);
+  }
+
+  getTotalCost(timeRange: 'day' | 'week' | 'month' | 'all' = 'all'): number {
+    return this.filterByTimeRange(timeRange).reduce((sum, r) => sum + r.cost, 0);
   }
 
   getCostByProvider(timeRange: 'day' | 'week' | 'month' | 'all' = 'all'): Map<string, number> {
-    const now = new Date();
-    let startDate: Date;
-
-    switch (timeRange) {
-      case 'day':
-        startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        break;
-      case 'week':
-        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        break;
-      case 'month':
-        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        break;
-      default:
-        startDate = new Date(0);
-    }
-
     const costs = new Map<string, number>();
-    for (const r of this.records) {
-      if (r.timestamp < startDate) continue;
+    for (const r of this.filterByTimeRange(timeRange)) {
       const current = costs.get(r.provider) || 0;
       costs.set(r.provider, current + r.cost);
     }
-
     return costs;
   }
 
   getCostByModel(timeRange: 'day' | 'week' | 'month' | 'all' = 'all'): Map<string, number> {
-    const now = new Date();
-    let startDate: Date;
-
-    switch (timeRange) {
-      case 'day':
-        startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        break;
-      case 'week':
-        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        break;
-      case 'month':
-        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        break;
-      default:
-        startDate = new Date(0);
-    }
-
     const costs = new Map<string, number>();
-    for (const r of this.records) {
-      if (r.timestamp < startDate) continue;
+    for (const r of this.filterByTimeRange(timeRange)) {
       const key = `${r.provider}:${r.model}`;
       const current = costs.get(key) || 0;
       costs.set(key, current + r.cost);
     }
-
     return costs;
   }
 

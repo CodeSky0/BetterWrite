@@ -1,29 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { useTheme } from '../../theme/dark-mode';
+import { createTabScreenOptions } from '../../theme/tabs-config';
 
 export default function TeacherLayout() {
   const { colors } = useTheme();
+  const tabOptions = createTabScreenOptions(colors);
+
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: true,
-        headerStyle: { backgroundColor: colors.bgPrimary },
-        headerTintColor: colors.textPrimary,
-        headerTitleStyle: { fontWeight: '600' },
-        tabBarActiveTintColor: colors.accent,
-        tabBarInactiveTintColor: colors.textTertiary,
-        tabBarStyle: {
-          backgroundColor: colors.bgElevated,
-          borderTopColor: colors.border,
-          borderTopWidth: 1,
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '500',
-        },
-      }}
-    >
+    <Tabs screenOptions={tabOptions}>
       <Tabs.Screen
         name="index"
         options={{

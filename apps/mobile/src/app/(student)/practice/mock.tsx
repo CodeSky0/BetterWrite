@@ -11,12 +11,14 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { FeedbackCard } from '../../../components/FeedbackCard';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { Card } from '../../../components/ui/Card';
 import { Loading } from '../../../components/ui/Loading';
 import { fetcher } from '../../../lib/api/fetcher';
 import { useTheme } from '../../../theme/dark-mode';
+import { practiceStyles as ps } from '../../../theme/practice-styles';
 
 const MOCK_TOTAL_SECONDS = 15 * 60;
 
@@ -147,56 +149,56 @@ export default function StudentPracticeMockPage() {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={[styles.container, { backgroundColor: colors.bgPrimary }]}
+      style={[ps.container, { backgroundColor: colors.bgPrimary }]}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={ps.scrollContent} keyboardShouldPersistTaps="handled">
         {question ? (
           <>
-            <View style={styles.header}>
-              <View style={styles.headerLeft}>
-                <View style={styles.badgeRow}>
+            <View style={ps.header}>
+              <View style={ps.headerLeft}>
+                <View style={ps.badgeRow}>
                   <Badge variant="secondary" colors={colors}>
                     限时模拟
                   </Badge>
                   <Badge variant="outline" colors={colors}>
                     {getTopicTypeLabel(question.topicType)}
                   </Badge>
-                  <Text style={[styles.timerText, { color: colors.textSecondary }]}>
+                  <Text style={[ps.timerText, { color: colors.textSecondary }]}>
                     已用 {formatTime(elapsed)}
                   </Text>
                 </View>
-                <Text style={[styles.title, { color: colors.textPrimary }]}>{question.title}</Text>
-                <Text style={[styles.requirements, { color: colors.textSecondary }]}>
+                <Text style={[ps.title, { color: colors.textPrimary }]}>{question.title}</Text>
+                <Text style={[ps.requirements, { color: colors.textSecondary }]}>
                   {question.requirements}
                 </Text>
               </View>
-              <View style={styles.timeBox}>
+              <View style={localStyles.timeBox}>
                 <Text
                   style={[
-                    styles.remainingValue,
+                    localStyles.remainingValue,
                     { color: remainingLow ? colors.error : colors.textPrimary },
                   ]}
                 >
                   {formatTime(remaining)}
                 </Text>
-                <Text style={[styles.remainingLabel, { color: colors.textTertiary }]}>
+                <Text style={[localStyles.remainingLabel, { color: colors.textTertiary }]}>
                   剩余时间
                 </Text>
               </View>
             </View>
 
             {question.keyPoints && question.keyPoints.length > 0 && (
-              <Card colors={colors} style={styles.pointsCard}>
-                <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>写作要点</Text>
+              <Card colors={colors} style={ps.pointsCard}>
+                <Text style={[ps.sectionTitle, { color: colors.textPrimary }]}>写作要点</Text>
                 {question.keyPoints.map((kp) => (
-                  <Text key={kp} style={[styles.pointText, { color: colors.textSecondary }]}>
+                  <Text key={kp} style={[ps.pointText, { color: colors.textSecondary }]}>
                     • {kp}
                   </Text>
                 ))}
               </Card>
             )}
 
-            <Card colors={colors} style={styles.editorCard}>
+            <Card colors={colors} style={ps.editorCard}>
               <TextInput
                 value={content}
                 onChangeText={setContent}
@@ -206,25 +208,23 @@ export default function StudentPracticeMockPage() {
                 textAlignVertical="top"
                 editable={!hasSubmitted}
                 style={[
-                  styles.textarea,
+                  ps.textarea,
                   { color: colors.textPrimary, backgroundColor: colors.bgElevated },
                 ]}
                 spellCheck={false}
                 autoCapitalize="none"
               />
-              <View style={styles.wordCountRow}>
-                <Text style={[styles.wordCountText, { color: colors.textSecondary }]}>
+              <View style={localStyles.wordCountRow}>
+                <Text style={[localStyles.wordCountText, { color: colors.textSecondary }]}>
                   词数：{wordCount} / {question.wordLimitMin}-{question.wordLimitMax}
                 </Text>
               </View>
             </Card>
 
-            {error ? (
-              <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
-            ) : null}
+            {error ? <Text style={[ps.errorText, { color: colors.error }]}>{error}</Text> : null}
 
             {!hasSubmitted && (
-              <View style={styles.actions}>
+              <View style={localStyles.actions}>
                 <Button title="退出模拟" variant="ghost" onPress={handleExit} colors={colors} />
                 <Button
                   title={isSubmitting ? '提交中...' : '提前提交'}
@@ -237,49 +237,15 @@ export default function StudentPracticeMockPage() {
             )}
 
             {feedbackErrors !== null && (
-              <Card colors={colors} style={styles.feedbackCard}>
-                <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>即时反馈</Text>
-                {feedbackErrors.length === 0 ? (
-                  <Text style={[styles.successText, { color: colors.success }]}>
-                    很棒，未发现语法错误
-                  </Text>
-                ) : (
-                  <>
-                    <Text style={[styles.feedbackDesc, { color: colors.textSecondary }]}>
-                      发现 {feedbackErrors.length} 处可改进，以下为修改建议：
-                    </Text>
-                    {feedbackErrors.map((err, idx) => (
-                      <View
-                        key={`${err.original}-${err.corrected}-${idx}`}
-                        style={styles.errorItem}
-                      >
-                        <View style={styles.errorHeader}>
-                          <Text style={[styles.errorOriginal, { color: colors.error }]}>
-                            {err.original}
-                          </Text>
-                          <Text style={[styles.errorArrow, { color: colors.textTertiary }]}>→</Text>
-                          <Text style={[styles.errorCorrected, { color: colors.success }]}>
-                            {err.corrected}
-                          </Text>
-                          <Badge variant="outline" colors={colors}>
-                            {err.type}
-                          </Badge>
-                        </View>
-                        <Text style={[styles.errorExplanation, { color: colors.textTertiary }]}>
-                          {err.explanation}
-                        </Text>
-                      </View>
-                    ))}
-                  </>
-                )}
-                <View style={[styles.divider, { backgroundColor: colors.border }]} />
+              <FeedbackCard colors={colors} feedbackErrors={feedbackErrors}>
+                <View style={[ps.divider, { backgroundColor: colors.border }]} />
                 <Button
                   title="返回练习首页"
                   variant="secondary"
                   onPress={handleExit}
                   colors={colors}
                 />
-              </Card>
+              </FeedbackCard>
             )}
           </>
         ) : null}
@@ -288,42 +254,7 @@ export default function StudentPracticeMockPage() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-    gap: 16,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  headerLeft: {
-    flex: 1,
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 8,
-    flexWrap: 'wrap',
-  },
-  timerText: {
-    fontSize: 13,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  requirements: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
+const localStyles = StyleSheet.create({
   timeBox: {
     alignItems: 'center',
     minWidth: 90,
@@ -336,27 +267,6 @@ const styles = StyleSheet.create({
   remainingLabel: {
     fontSize: 12,
   },
-  pointsCard: {
-    gap: 8,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  pointText: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  editorCard: {
-    padding: 0,
-    overflow: 'hidden',
-  },
-  textarea: {
-    minHeight: 260,
-    padding: 16,
-    fontSize: 16,
-    lineHeight: 24,
-  },
   wordCountRow: {
     paddingHorizontal: 16,
     paddingBottom: 12,
@@ -364,53 +274,9 @@ const styles = StyleSheet.create({
   wordCountText: {
     fontSize: 13,
   },
-  errorText: {
-    fontSize: 14,
-    textAlign: 'center',
-  },
   actions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  feedbackCard: {
-    gap: 12,
-  },
-  successText: {
-    fontSize: 14,
-  },
-  feedbackDesc: {
-    fontSize: 14,
-  },
-  errorItem: {
-    padding: 12,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.02)',
-    gap: 6,
-  },
-  errorHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  errorOriginal: {
-    fontSize: 14,
-    textDecorationLine: 'line-through',
-  },
-  errorArrow: {
-    fontSize: 14,
-  },
-  errorCorrected: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  errorExplanation: {
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  divider: {
-    height: 1,
-    marginVertical: 4,
   },
 });

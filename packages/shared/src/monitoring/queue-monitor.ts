@@ -40,28 +40,23 @@ export class QueueMonitor {
     return history[history.length - 1];
   }
 
-  getAverageWaitTime(queueName: string, windowMs = 60000): number {
+  private getRecentMetrics(queueName: string, windowMs: number): QueueMetrics[] {
     const history = this.metrics.get(queueName);
-    if (!history || history.length === 0) return 0;
-
+    if (!history || history.length === 0) return [];
     const now = Date.now();
-    const recent = history.filter((m) => now - m.timestamp <= windowMs);
+    return history.filter((m) => now - m.timestamp <= windowMs);
+  }
 
+  getAverageWaitTime(queueName: string, windowMs = 60000): number {
+    const recent = this.getRecentMetrics(queueName, windowMs);
     if (recent.length === 0) return 0;
-
     const totalWaiting = recent.reduce((sum, m) => sum + m.waiting, 0);
     return totalWaiting / recent.length;
   }
 
   getThroughput(queueName: string, windowMs = 60000): number {
-    const history = this.metrics.get(queueName);
-    if (!history || history.length === 0) return 0;
-
-    const now = Date.now();
-    const recent = history.filter((m) => now - m.timestamp <= windowMs);
-
+    const recent = this.getRecentMetrics(queueName, windowMs);
     if (recent.length === 0) return 0;
-
     const totalCompleted = recent.reduce((sum, m) => sum + m.completed, 0);
     return totalCompleted / (windowMs / 1000); // jobs per second
   }

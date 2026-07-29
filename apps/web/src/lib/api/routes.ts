@@ -47,6 +47,7 @@ import {
   checkAchievements,
   countWords,
 } from '@betterwrite/shared';
+import type { AiAssistantModeValue } from '@betterwrite/shared';
 import type {
   Achievement,
   AdminDashboardStats,
@@ -2767,6 +2768,77 @@ function safeJsonObject(s: string | null | undefined): Record<string, unknown> {
   }
 }
 
+// Helper to map questionBank DB row to QuestionBankItem type
+function toQuestionBankItem(r: typeof questionBank.$inferSelect): QuestionBankItem {
+  return {
+    id: r.id,
+    topicType: r.topicType,
+    topicCategory: r.topicCategory,
+    title: r.title,
+    requirements: r.requirements,
+    keyPoints: safeJsonArray(r.keyPoints),
+    referenceEssay: r.referenceEssay,
+    wordLimitMin: r.wordLimitMin,
+    wordLimitMax: r.wordLimitMax,
+    timeLimitMinutes: r.timeLimitMinutes,
+    difficulty: r.difficulty as QuestionBankItem['difficulty'],
+    source: r.source,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  };
+}
+
+// Helper for AI assistant routes - reduces duplication across polish/upgrade/synonym/grammar
+async function handleAiAssistantRequest<T>(
+  userId: string,
+  mode: AiAssistantModeValue,
+  inputText: string,
+  aiCall: (router: Awaited<ReturnType<typeof getAiRouter>>) => Promise<T>,
+  transformResult: (result: T) => {
+    outputText: string;
+    metadata: Record<string, unknown>;
+    details: Record<string, unknown>;
+  },
+): Promise<{ success: boolean; data?: AiAssistantResult; error?: string; status?: 500 | 503 }> {
+  const router = await getAiRouter();
+  if (router.availableNames().length === 0) {
+    return { success: false, error: 'AI 服务未配置', status: 503 };
+  }
+  let result: T;
+  try {
+    result = await aiCall(router);
+  } catch (err) {
+    routesLogger.warn(
+      { userId, error: err instanceof Error ? err.message : 'unknown' },
+      `[AI ${mode}]`,
+    );
+    return { success: false, error: 'AI 调用失败，请稍后重试', status: 500 };
+  }
+  const { outputText, metadata, details } = transformResult(result);
+  const now = new Date().toISOString();
+  await db.insert(aiConversations).values({
+    id: randomUUID(),
+    studentId: userId,
+    mode,
+    inputText,
+    outputText,
+    metadata: JSON.stringify(metadata),
+    aiProvider: null,
+    aiModel: null,
+    tokensUsed: null,
+    createdAt: now,
+  });
+  const data: AiAssistantResult = {
+    mode,
+    input: inputText,
+    output: outputText,
+    details,
+    provider: null,
+    model: null,
+  };
+  return { success: true, data };
+}
+
 async function syncStudentErrorBook(studentId: string): Promise<number> {
   // Bug #PERF-2.5: 增量同步 — 仅加载尚未出现在 errorBooks 中的 correction 对应的作文，
   // 避免每次全量扫描学生所有 completed 作文 + correction。
@@ -3129,44 +3201,21 @@ app.post(
     const { text } = c.req.valid('json');
     const start = Date.now();
     routesLogger.info({ userId: user.id }, '[API /student/ai/polish]');
-    const router = await getAiRouter();
-    if (router.availableNames().length === 0) {
-      return c.json({ success: false, error: 'AI 服务未配置' }, 503);
-    }
-    let result: Awaited<ReturnType<typeof polishEssay>>;
-    try {
-      result = await polishEssay(router, text);
-    } catch (err) {
-      routesLogger.warn(
-        { userId: user.id, error: err instanceof Error ? err.message : 'unknown' },
-        '[API /student/ai/polish]',
-      );
-      return c.json({ success: false, error: 'AI 调用失败，请稍后重试' }, 500);
-    }
-    const now = new Date().toISOString();
-    await db.insert(aiConversations).values({
-      id: randomUUID(),
-      studentId: user.id,
-      mode: AiAssistantMode.POLISH,
-      inputText: text,
-      outputText: result.polished,
-      metadata: JSON.stringify({ changes: result.changes }),
-      aiProvider: null,
-      aiModel: null,
-      tokensUsed: null,
-      createdAt: now,
-    });
+    const result = await handleAiAssistantRequest(
+      user.id,
+      AiAssistantMode.POLISH,
+      text,
+      (router) => polishEssay(router, text),
+      (res) => ({
+        outputText: res.polished,
+        metadata: { changes: res.changes },
+        details: { changes: res.changes },
+      }),
+    );
     const duration = Date.now() - start;
     routesLogger.info({ userId: user.id, duration: duration }, '[API /student/ai/polish]');
-    const data: AiAssistantResult = {
-      mode: AiAssistantMode.POLISH,
-      input: text,
-      output: result.polished,
-      details: { changes: result.changes },
-      provider: null,
-      model: null,
-    };
-    return c.json({ success: true, data });
+    if (!result.success) return c.json({ success: false, error: result.error }, result.status);
+    return c.json({ success: true, data: result.data });
   },
 );
 
@@ -3187,45 +3236,24 @@ app.post(
     const { text } = c.req.valid('json');
     const start = Date.now();
     routesLogger.info({ userId: user.id }, '[API /student/ai/upgrade]');
-    const router = await getAiRouter();
-    if (router.availableNames().length === 0) {
-      return c.json({ success: false, error: 'AI 服务未配置' }, 503);
-    }
-    let result: Awaited<ReturnType<typeof upgradeSentences>>;
-    try {
-      result = await upgradeSentences(router, text);
-    } catch (err) {
-      routesLogger.warn(
-        { userId: user.id, error: err instanceof Error ? err.message : 'unknown' },
-        '[API /student/ai/upgrade]',
-      );
-      return c.json({ success: false, error: 'AI 调用失败，请稍后重试' }, 500);
-    }
-    const now = new Date().toISOString();
-    const outputText = result.sentences.map((s) => s.upgraded).join('\n');
-    await db.insert(aiConversations).values({
-      id: randomUUID(),
-      studentId: user.id,
-      mode: AiAssistantMode.UPGRADE,
-      inputText: text,
-      outputText,
-      metadata: JSON.stringify({ sentences: result.sentences }),
-      aiProvider: null,
-      aiModel: null,
-      tokensUsed: null,
-      createdAt: now,
-    });
+    const result = await handleAiAssistantRequest(
+      user.id,
+      AiAssistantMode.UPGRADE,
+      text,
+      (router) => upgradeSentences(router, text),
+      (res) => {
+        const outputText = res.sentences.map((s) => s.upgraded).join('\n');
+        return {
+          outputText,
+          metadata: { sentences: res.sentences },
+          details: { sentences: res.sentences },
+        };
+      },
+    );
     const duration = Date.now() - start;
     routesLogger.info({ userId: user.id, duration: duration }, '[API /student/ai/upgrade]');
-    const data: AiAssistantResult = {
-      mode: AiAssistantMode.UPGRADE,
-      input: text,
-      output: outputText,
-      details: { sentences: result.sentences },
-      provider: null,
-      model: null,
-    };
-    return c.json({ success: true, data });
+    if (!result.success) return c.json({ success: false, error: result.error }, result.status);
+    return c.json({ success: true, data: result.data });
   },
 );
 
@@ -3247,45 +3275,25 @@ app.post(
     const { word, context } = c.req.valid('json');
     const start = Date.now();
     routesLogger.info({ userId: user.id, word: word }, '[API /student/ai/synonym]');
-    const router = await getAiRouter();
-    if (router.availableNames().length === 0) {
-      return c.json({ success: false, error: 'AI 服务未配置' }, 503);
-    }
-    let result: Awaited<ReturnType<typeof getSynonyms>>;
-    try {
-      result = await getSynonyms(router, word, context);
-    } catch (err) {
-      routesLogger.warn(
-        { userId: user.id, error: err instanceof Error ? err.message : 'unknown' },
-        '[API /student/ai/synonym]',
-      );
-      return c.json({ success: false, error: 'AI 调用失败，请稍后重试' }, 500);
-    }
-    const now = new Date().toISOString();
-    const outputText = result.synonyms.map((s) => s.word).join(', ');
-    await db.insert(aiConversations).values({
-      id: randomUUID(),
-      studentId: user.id,
-      mode: AiAssistantMode.SYNONYM,
-      inputText: `${word}\n${context}`,
-      outputText,
-      metadata: JSON.stringify({ word, synonyms: result.synonyms }),
-      aiProvider: null,
-      aiModel: null,
-      tokensUsed: null,
-      createdAt: now,
-    });
+    const inputText = `${word}\n${context}`;
+    const result = await handleAiAssistantRequest(
+      user.id,
+      AiAssistantMode.SYNONYM,
+      inputText,
+      (router) => getSynonyms(router, word, context),
+      (res) => {
+        const outputText = res.synonyms.map((s) => s.word).join(', ');
+        return {
+          outputText,
+          metadata: { word, synonyms: res.synonyms },
+          details: { word, synonyms: res.synonyms },
+        };
+      },
+    );
     const duration = Date.now() - start;
     routesLogger.info({ userId: user.id, duration: duration }, '[API /student/ai/synonym]');
-    const data: AiAssistantResult = {
-      mode: AiAssistantMode.SYNONYM,
-      input: word,
-      output: outputText,
-      details: { word, synonyms: result.synonyms },
-      provider: null,
-      model: null,
-    };
-    return c.json({ success: true, data });
+    if (!result.success) return c.json({ success: false, error: result.error }, result.status);
+    return c.json({ success: true, data: result.data });
   },
 );
 
@@ -3306,45 +3314,21 @@ app.post(
     const { text } = c.req.valid('json');
     const start = Date.now();
     routesLogger.info({ userId: user.id }, '[API /student/ai/grammar]');
-    const router = await getAiRouter();
-    if (router.availableNames().length === 0) {
-      return c.json({ success: false, error: 'AI 服务未配置' }, 503);
-    }
-    let result: Awaited<ReturnType<typeof checkGrammar>>;
-    try {
-      result = await checkGrammar(router, text);
-    } catch (err) {
-      routesLogger.warn(
-        { userId: user.id, error: err instanceof Error ? err.message : 'unknown' },
-        '[API /student/ai/grammar]',
-      );
-      return c.json({ success: false, error: 'AI 调用失败，请稍后重试' }, 500);
-    }
-    const now = new Date().toISOString();
-    const outputText = `${result.errors.length} errors found`;
-    await db.insert(aiConversations).values({
-      id: randomUUID(),
-      studentId: user.id,
-      mode: AiAssistantMode.GRAMMAR,
-      inputText: text,
-      outputText,
-      metadata: JSON.stringify({ errors: result.errors }),
-      aiProvider: null,
-      aiModel: null,
-      tokensUsed: null,
-      createdAt: now,
-    });
+    const result = await handleAiAssistantRequest(
+      user.id,
+      AiAssistantMode.GRAMMAR,
+      text,
+      (router) => checkGrammar(router, text),
+      (res) => ({
+        outputText: `${res.errors.length} errors found`,
+        metadata: { errors: res.errors },
+        details: { errors: res.errors },
+      }),
+    );
     const duration = Date.now() - start;
     routesLogger.info({ userId: user.id, duration: duration }, '[API /student/ai/grammar]');
-    const data: AiAssistantResult = {
-      mode: AiAssistantMode.GRAMMAR,
-      input: text,
-      output: outputText,
-      details: { errors: result.errors },
-      provider: null,
-      model: null,
-    };
-    return c.json({ success: true, data });
+    if (!result.success) return c.json({ success: false, error: result.error }, result.status);
+    return c.json({ success: true, data: result.data });
   },
 );
 
@@ -3415,22 +3399,7 @@ app.get(
       offset,
       limit,
     });
-    const data: QuestionBankItem[] = rows.map((r) => ({
-      id: r.id,
-      topicType: r.topicType,
-      topicCategory: r.topicCategory,
-      title: r.title,
-      requirements: r.requirements,
-      keyPoints: safeJsonArray(r.keyPoints),
-      referenceEssay: r.referenceEssay,
-      wordLimitMin: r.wordLimitMin,
-      wordLimitMax: r.wordLimitMax,
-      timeLimitMinutes: r.timeLimitMinutes,
-      difficulty: r.difficulty as QuestionBankItem['difficulty'],
-      source: r.source,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-    }));
+    const data: QuestionBankItem[] = rows.map(toQuestionBankItem);
     return c.json({ success: true, data });
   },
 );
@@ -3452,23 +3421,7 @@ app.get(
       where: and(eq(questionBank.id, id), eq(questionBank.isPublic, 1)),
     });
     if (!r) return c.json({ success: false, error: '题目不存在' }, 404);
-    const data: QuestionBankItem = {
-      id: r.id,
-      topicType: r.topicType,
-      topicCategory: r.topicCategory,
-      title: r.title,
-      requirements: r.requirements,
-      keyPoints: safeJsonArray(r.keyPoints),
-      referenceEssay: r.referenceEssay,
-      wordLimitMin: r.wordLimitMin,
-      wordLimitMax: r.wordLimitMax,
-      timeLimitMinutes: r.timeLimitMinutes,
-      difficulty: r.difficulty as QuestionBankItem['difficulty'],
-      source: r.source,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-    };
-    return c.json({ success: true, data });
+    return c.json({ success: true, data: toQuestionBankItem(r) });
   },
 );
 
@@ -5286,22 +5239,7 @@ app.get(
         limit,
         offset,
       });
-      const data: QuestionBankItem[] = rows.map((r) => ({
-        id: r.id,
-        topicType: r.topicType,
-        topicCategory: r.topicCategory,
-        title: r.title,
-        requirements: r.requirements,
-        keyPoints: safeJsonArray(r.keyPoints),
-        referenceEssay: r.referenceEssay,
-        wordLimitMin: r.wordLimitMin,
-        wordLimitMax: r.wordLimitMax,
-        timeLimitMinutes: r.timeLimitMinutes,
-        difficulty: r.difficulty as QuestionBankItem['difficulty'],
-        source: r.source,
-        createdAt: r.createdAt,
-        updatedAt: r.updatedAt,
-      }));
+      const data: QuestionBankItem[] = rows.map(toQuestionBankItem);
       routesLogger.info(
         { duration: Date.now() - startedAt, count: data.length },
         '[API /admin/question-bank] exit',

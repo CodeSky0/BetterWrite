@@ -10,13 +10,18 @@ class MockProvider extends BaseAIProvider {
   lastPrompt = '';
   shouldFail = false;
 
-  async complete(prompt: string): Promise<string> {
+  // Mock client factory - not actually used since we override complete/generateObject
+  protected getClient(): (model: string) => unknown {
+    return () => ({});
+  }
+
+  override async complete(prompt: string): Promise<string> {
     this.lastPrompt = prompt;
     if (this.shouldFail) throw new Error('mock failure');
     return 'mock';
   }
 
-  async generateObject<T>(prompt: string, _schema: ZodSchema<T>): Promise<T> {
+  override async generateObject<T>(prompt: string, _schema: ZodSchema<T>): Promise<T> {
     this.lastPrompt = prompt;
     if (this.shouldFail) throw new Error('mock failure');
     return { mock: true } as unknown as T;
