@@ -23,7 +23,12 @@ export function BulkOperations({ onClose }: BulkOperationsProps) {
   const [operations, setOperations] = useState<BulkOperation[]>([]);
   const [_selectedAction, setSelectedAction] = useState<string>('');
 
-  const operationTypes = [
+  const operationTypes: {
+    id: 'publish' | 'close' | 'delete' | 'export' | 'remind';
+    label: string;
+    icon: typeof Send;
+    description: string;
+  }[] = [
     {
       id: 'publish',
       label: 'Publish Tasks',
@@ -40,12 +45,12 @@ export function BulkOperations({ onClose }: BulkOperationsProps) {
     },
   ];
 
-  const handleStartOperation = (type: string) => {
+  const handleStartOperation = (type: 'publish' | 'close' | 'delete' | 'export' | 'remind') => {
     setSelectedAction(type);
     // Simulate bulk operation
     const newOp: BulkOperation = {
       id: Date.now().toString(),
-      type: type as any,
+      type,
       target: 'Selected items',
       status: 'processing',
       progress: 0,

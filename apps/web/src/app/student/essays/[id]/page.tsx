@@ -119,11 +119,20 @@ export default function EssayDetailPage() {
 
                   <TabsContent value="interactive">
                     <InteractiveFeedback
-                      errors={correction.errors.map((e: any) => ({
-                        ...e,
-                        category: e.type,
-                        priority: 'medium' as const,
-                      }))}
+                      errors={correction.errors.map(
+                        (e: {
+                          type: string;
+                          original: string;
+                          corrected: string;
+                          explanation: string;
+                          position?: { start: number; end: number };
+                        }) => ({
+                          ...e,
+                          category: e.type,
+                          priority: 'medium' as const,
+                          position: e.position ?? { start: 0, end: 0 },
+                        }),
+                      )}
                       suggestions={correction.suggestions}
                       originalEssay={essay.content}
                       revisedEssay={correction.revisedEssay || essay.content}

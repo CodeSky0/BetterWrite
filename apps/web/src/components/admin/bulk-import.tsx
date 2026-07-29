@@ -36,7 +36,11 @@ export function BulkImport({ onClose }: BulkImportProps) {
   const [isImporting, setIsImporting] = useState(false);
   const [importRecords, setImportRecords] = useState<ImportRecord[]>([]);
 
-  const importTypes = [
+  const importTypes: {
+    id: 'students' | 'teachers' | 'classes';
+    label: string;
+    description: string;
+  }[] = [
     { id: 'students', label: 'Students', description: 'Import student accounts and enrollments' },
     { id: 'teachers', label: 'Teachers', description: 'Import teacher accounts and assignments' },
     { id: 'classes', label: 'Classes', description: 'Import class information and schedules' },
@@ -128,7 +132,7 @@ export function BulkImport({ onClose }: BulkImportProps) {
                   key={type.id}
                   variant={importType === type.id ? 'default' : 'outline'}
                   className="h-auto p-4 flex flex-col items-start gap-2"
-                  onClick={() => setImportType(type.id as any)}
+                  onClick={() => setImportType(type.id)}
                   disabled={isImporting}
                 >
                   <span className="font-medium">{type.label}</span>

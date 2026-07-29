@@ -103,7 +103,7 @@ export function SchoolAnalytics({ onClose }: SchoolAnalyticsProps) {
             <div className="flex items-center gap-2">
               <select
                 value={selectedPeriod}
-                onChange={(e) => setSelectedPeriod(e.target.value as any)}
+                onChange={(e) => setSelectedPeriod(e.target.value as 'week' | 'month' | 'quarter')}
                 className="px-3 py-2 border border-neutral-3 rounded-md bg-neutral-1 text-neutral-10"
               >
                 <option value="week">This Week</option>
