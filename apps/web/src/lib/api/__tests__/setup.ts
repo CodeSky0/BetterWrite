@@ -29,6 +29,7 @@ const TABLES_TO_CLEAN = [
   'essay_tasks',
   'class_enrollments',
   'classes',
+  'model_routes',
   'api_tokens',
   'device_tokens',
   'api_configs',
@@ -56,7 +57,20 @@ export async function applyMigrations(): Promise<void> {
       .filter((s) => s.length > 0);
 
     for (const stmt of statements) {
-      await db.run(sql.raw(stmt));
+      try {
+        await db.run(sql.raw(stmt));
+      } catch (e) {
+        // Skip "already exists" / "duplicate column" errors for idempotent migrations
+        const msg = e instanceof Error ? e.message : String(e);
+        if (
+          msg.includes('already exists') ||
+          msg.includes('duplicate column') ||
+          msg.includes('duplicate index')
+        ) {
+          continue;
+        }
+        throw e;
+      }
     }
   }
   migrationsApplied = true;
