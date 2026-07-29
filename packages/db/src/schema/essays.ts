@@ -26,6 +26,14 @@ export const essayTasks = sqliteTable(
     timeLimitMinutes: integer('time_limit_minutes').default(15),
     status: text('status').default('draft').notNull(),
     dueDate: text('due_date'),
+    // 学段：junior=初中（默认），senior=高中
+    stage: text('stage').notNull().default('junior'),
+    // 高中题型：applied_writing=应用文写作，continuation_writing=读后续写（仅高中使用）
+    seniorEssayType: text('senior_essay_type'),
+    // 读后续写专用：阅读原文
+    readingPassage: text('reading_passage'),
+    // 读后续写专用：段首句（JSON数组）
+    continuationParagraphStarts: text('continuation_paragraph_starts'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
@@ -36,6 +44,8 @@ export const essayTasks = sqliteTable(
     classStatusIdx: index('essay_tasks_class_status_idx').on(t.classId, t.status),
     creatorIdx: index('essay_tasks_creator_idx').on(t.createdBy),
     dueDateIdx: index('essay_tasks_due_date_idx').on(t.dueDate),
+    stageIdx: index('essay_tasks_stage_idx').on(t.stage),
+    stageTypeIdx: index('essay_tasks_stage_type_idx').on(t.stage, t.seniorEssayType),
   }),
 );
 
@@ -64,6 +74,8 @@ export const essays = sqliteTable(
     correctionId: text('correction_id'),
     teacherReview: text('teacher_review'),
     teacherScore: real('teacher_score'),
+    // 学段标识（冗余存储，方便按学段查询）
+    stage: text('stage').notNull().default('junior'),
     submittedAt: text('submitted_at').notNull(),
     correctedAt: text('corrected_at'),
     createdAt: text('created_at').notNull(),
@@ -74,11 +86,13 @@ export const essays = sqliteTable(
     taskIdx: index('essays_task_idx').on(t.taskId),
     statusIdx: index('essays_status_idx').on(t.status),
     scoreTierIdx: index('essays_score_tier_idx').on(t.scoreTier),
+    stageIdx: index('essays_stage_idx').on(t.stage),
     // Composite indexes for common query patterns
     studentStatusIdx: index('essays_student_status_idx').on(t.studentId, t.status),
     studentSubmittedIdx: index('essays_student_submitted_idx').on(t.studentId, t.submittedAt),
     taskStatusIdx: index('essays_task_status_idx').on(t.taskId, t.status),
     statusSubmittedIdx: index('essays_status_submitted_idx').on(t.status, t.submittedAt),
+    stageStatusIdx: index('essays_stage_status_idx').on(t.stage, t.status),
   }),
 );
 

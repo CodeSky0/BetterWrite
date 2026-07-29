@@ -939,11 +939,13 @@ app.post(
     const now = new Date().toISOString();
     const essayId = randomUUID();
 
+    let essayStage: 'junior' | 'senior' = 'junior';
     if (taskId) {
       const task = await db.query.essayTasks.findFirst({ where: eq(essayTasks.id, taskId) });
       if (!task) {
         return c.json({ success: false, error: '作文任务不存在' }, 404);
       }
+      essayStage = (task.stage as 'junior' | 'senior') ?? 'junior';
       const enrolled = await db.query.classEnrollments.findFirst({
         where: and(
           eq(classEnrollments.classId, task.classId),
@@ -978,6 +980,8 @@ app.post(
         content,
         wordCount,
         status: 'pending',
+        // 冗余存储学段信息（从 task 继承，无 task 时默认 junior）
+        stage: essayStage,
         submittedAt: now,
         createdAt: now,
         updatedAt: now,
@@ -1365,6 +1369,14 @@ const taskSchema = z
     wordLimitMin: z.number().int().min(20).max(500).default(80),
     wordLimitMax: z.number().int().min(20).max(500).default(125),
     dueDate: z.string().optional(),
+    // 学段：junior=初中（默认），senior=高中
+    stage: z.enum(['junior', 'senior']).default('junior'),
+    // 高中题型：applied_writing=应用文写作，continuation_writing=读后续写（仅高中使用）
+    seniorEssayType: z.enum(['applied_writing', 'continuation_writing']).optional(),
+    // 读后续写专用：阅读原文
+    readingPassage: z.string().optional(),
+    // 读后续写专用：段首句
+    continuationParagraphStarts: z.array(z.string()).optional(),
   })
   .refine((d) => d.wordLimitMin <= d.wordLimitMax, {
     // Bug #51: 创建/更新 task 时若 min > max，DB 会写入脏数据；前端/服务端字数校验
@@ -1402,6 +1414,9 @@ app.post(
         id,
         ...data,
         keyPoints: JSON.stringify(data.keyPoints),
+        continuationParagraphStarts: data.continuationParagraphStarts
+          ? JSON.stringify(data.continuationParagraphStarts)
+          : undefined,
         createdBy: user.id,
         status: 'draft',
         createdAt: now,
@@ -2783,6 +2798,8 @@ function toQuestionBankItem(r: typeof questionBank.$inferSelect): QuestionBankIt
     timeLimitMinutes: r.timeLimitMinutes,
     difficulty: r.difficulty as QuestionBankItem['difficulty'],
     source: r.source,
+    stage: (r.stage as QuestionBankItem['stage']) ?? 'junior',
+    seniorEssayType: (r.seniorEssayType as QuestionBankItem['seniorEssayType']) ?? null,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
@@ -4142,6 +4159,8 @@ const schoolCreateSchema = z.object({
   code: z.string().min(1, '学校代码不能为空'),
   name: z.string().min(1, '学校名称不能为空'),
   region: z.string().min(1, '所属区域不能为空'),
+  // 学段：junior=初中（默认），senior=高中
+  stage: z.enum(['junior', 'senior']).default('junior'),
   contactName: z.string().optional(),
   contactPhone: z.string().optional(),
 });
@@ -4223,6 +4242,7 @@ app.get(
           code: s.code,
           name: s.name,
           region: s.region,
+          stage: (s.stage as 'junior' | 'senior') ?? 'junior',
           contactName: s.contactName,
           contactPhone: s.contactPhone,
           isActive: s.isActive,
@@ -4282,6 +4302,7 @@ app.post(
           code,
           name: body.name,
           region: body.region,
+          stage: body.stage ?? 'junior',
           contactName: body.contactName ?? null,
           contactPhone: body.contactPhone ?? null,
           isActive: true,
@@ -4785,6 +4806,8 @@ app.get(
       const rows = await db
         .select({
           stage: modelRoutes.stage,
+          routeStage: modelRoutes.routeStage,
+          seniorEssayType: modelRoutes.seniorEssayType,
           apiConfigId: modelRoutes.apiConfigId,
           provider: apiConfigs.provider,
           model: apiConfigs.model,
@@ -4797,6 +4820,9 @@ app.get(
       const data: ModelRouteItem[] = CORRECTION_STAGES.map(({ value }) => {
         const row = byStage.get(value);
         return {
+          routeStage: (row?.routeStage as 'junior' | 'senior' | null) ?? null,
+          seniorEssayType:
+            (row?.seniorEssayType as 'applied_writing' | 'continuation_writing' | null) ?? null,
           stage: value,
           apiConfigId: row?.apiConfigId ?? null,
           provider: row?.provider ?? null,

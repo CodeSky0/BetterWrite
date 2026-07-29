@@ -8,7 +8,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { type EssayTask, fetcher } from '@/lib/api/fetcher';
 import { ESSAY_CHECKLIST_ITEMS, useEssayDraft } from '@/lib/hooks/use-essay-draft';
-import { UserRole, formatDuration, getTopicTypeLabel } from '@betterwrite/shared';
+import {
+  UserRole,
+  formatDuration,
+  getEducationStageLabel,
+  getTopicTypeLabel,
+} from '@betterwrite/shared';
 import { AlertCircle, Clock, PenLine, Save } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -88,6 +93,9 @@ export default function EssayEditorPage() {
                     <Badge variant="secondary">
                       {task ? getTopicTypeLabel(task.topicType) : '自由写作'}
                     </Badge>
+                    {task?.stage === 'senior' && (
+                      <Badge variant="outline">{getEducationStageLabel(task.stage)}</Badge>
+                    )}
                     <span className="text-copy-14 text-neutral-8 flex items-center gap-1">
                       <Clock className="w-3.5 h-3.5" />
                       {formatDuration(draft.durationMs)}
@@ -111,6 +119,47 @@ export default function EssayEditorPage() {
                   </p>
                 </div>
               </div>
+
+              {/* 读后续写：阅读原文展示 */}
+              {task?.stage === 'senior' &&
+                task.seniorEssayType === 'continuation_writing' &&
+                task.readingPassage && (
+                  <Card>
+                    <CardContent className="pt-6">
+                      <h3 className="text-title-20 font-medium text-neutral-10 mb-3">
+                        Reading Passage
+                      </h3>
+                      <div className="p-4 bg-neutral-2 rounded-md text-neutral-10 leading-relaxed whitespace-pre-wrap text-copy-14">
+                        {task.readingPassage}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+              {/* 读后续写：段首句提示 */}
+              {task?.stage === 'senior' &&
+                task.seniorEssayType === 'continuation_writing' &&
+                task.continuationParagraphStarts &&
+                task.continuationParagraphStarts.length > 0 && (
+                  <Card>
+                    <CardContent className="pt-6 space-y-2">
+                      <h3 className="text-title-20 font-medium text-neutral-10">
+                        Paragraph Starters
+                      </h3>
+                      {task.continuationParagraphStarts.map((ps, idx) => (
+                        <div
+                          key={`p${idx}-${ps.slice(0, 20)}`}
+                          className="p-3 bg-accent/10 rounded-md"
+                        >
+                          <span className="text-label-12 text-neutral-8">
+                            Paragraph {idx + 1}:{' '}
+                          </span>
+                          <span className="text-copy-14 text-neutral-10 font-medium">{ps}</span>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                )}
 
               <Card>
                 <CardContent className="pt-6">
@@ -141,8 +190,11 @@ export default function EssayEditorPage() {
                       字数提示
                     </div>
                     <p className="text-copy-14 text-neutral-8">
-                      深圳中考英语作文建议词数为{' '}
-                      <span className="font-medium text-neutral-10">100-125</span> 词，
+                      {task?.stage === 'senior' ? '高考英语作文' : '深圳中考英语作文'}建议词数为{' '}
+                      <span className="font-medium text-neutral-10">
+                        {wordLimitMin}-{wordLimitMax}
+                      </span>{' '}
+                      词，
                       {wordLimitMin} 词为底线。
                     </p>
                     <div className="h-2 bg-neutral-2 rounded-full overflow-hidden">

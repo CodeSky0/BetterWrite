@@ -38,12 +38,33 @@ const priorityLabels: Record<string, string> = {
 export function CorrectionResultView({ correction, originalEssay }: CorrectionResultProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'errors' | 'revised'>('overview');
 
+  const isSenior = correction.stage === 'senior';
+  const maxTotal = isSenior ? 25 : 15;
+  const scoreStandard = isSenior ? '高考全国卷评分标准' : '深圳中考评分标准';
+
+  // 按学段确定各维度满分
+  const dimensionMax = isSenior
+    ? { topicAdherence: 3, content: 10, language: 10, structure: 5, presentation: 1.5 }
+    : { topicAdherence: 2, content: 5, language: 4, structure: 2.5, presentation: 1.5 };
+
   const radarData = [
-    { subject: '审题扣题', A: (correction.topicAdherenceScore / 2) * 100, fullMark: 100 },
-    { subject: '内容', A: (correction.contentScore / 5) * 100, fullMark: 100 },
-    { subject: '语言', A: (correction.languageScore / 4) * 100, fullMark: 100 },
-    { subject: '结构', A: (correction.structureScore / 2.5) * 100, fullMark: 100 },
-    { subject: '卷面', A: (correction.presentationScore / 1.5) * 100, fullMark: 100 },
+    {
+      subject: '审题扣题',
+      A: (correction.topicAdherenceScore / dimensionMax.topicAdherence) * 100,
+      fullMark: 100,
+    },
+    { subject: '内容', A: (correction.contentScore / dimensionMax.content) * 100, fullMark: 100 },
+    { subject: '语言', A: (correction.languageScore / dimensionMax.language) * 100, fullMark: 100 },
+    {
+      subject: '结构',
+      A: (correction.structureScore / dimensionMax.structure) * 100,
+      fullMark: 100,
+    },
+    {
+      subject: '卷面',
+      A: (correction.presentationScore / dimensionMax.presentation) * 100,
+      fullMark: 100,
+    },
   ];
 
   const renderOverview = () => (
@@ -55,14 +76,14 @@ export function CorrectionResultView({ correction, originalEssay }: CorrectionRe
             <p className="text-display-48 font-medium text-accent">
               {formatScore(correction.totalScore)}
             </p>
-            <p className="text-copy-14 text-neutral-8 mt-1">/ 15 分</p>
+            <p className="text-copy-14 text-neutral-8 mt-1">/ {maxTotal} 分</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-6 text-center">
             <p className="text-copy-14 text-neutral-8 mb-1">评级</p>
             <p className="text-title-24 font-medium text-neutral-10">{correction.scoreTier}</p>
-            <p className="text-copy-14 text-neutral-8 mt-1">深圳中考评分标准</p>
+            <p className="text-copy-14 text-neutral-8 mt-1">{scoreStandard}</p>
           </CardContent>
         </Card>
       </div>
@@ -79,16 +100,31 @@ export function CorrectionResultView({ correction, originalEssay }: CorrectionRe
                   key: 'topicAdherence',
                   label: '审题扣题',
                   score: correction.topicAdherenceScore,
-                  max: 2,
+                  max: dimensionMax.topicAdherence,
                 },
-                { key: 'content', label: '内容', score: correction.contentScore, max: 5 },
-                { key: 'language', label: '语言', score: correction.languageScore, max: 4 },
-                { key: 'structure', label: '结构', score: correction.structureScore, max: 2.5 },
+                {
+                  key: 'content',
+                  label: '内容',
+                  score: correction.contentScore,
+                  max: dimensionMax.content,
+                },
+                {
+                  key: 'language',
+                  label: '语言',
+                  score: correction.languageScore,
+                  max: dimensionMax.language,
+                },
+                {
+                  key: 'structure',
+                  label: '结构',
+                  score: correction.structureScore,
+                  max: dimensionMax.structure,
+                },
                 {
                   key: 'presentation',
                   label: '卷面',
                   score: correction.presentationScore,
-                  max: 1.5,
+                  max: dimensionMax.presentation,
                 },
               ].map((dim) => (
                 <div key={dim.key}>

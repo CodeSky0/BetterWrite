@@ -117,48 +117,39 @@ export async function processCorrection(job: CorrectionJob): Promise<void> {
     const router = await aiRouterManager.ensureRouter();
     let result: Awaited<ReturnType<typeof correctEssay>>;
 
-    if (router.availableNames().length === 0) {
-      correctionLogger.warn('No AI provider configured, using mock correction');
-      const taskInput: EssayTaskInput = essay.task
-        ? {
-            title: essay.task.title,
-            requirements: essay.task.requirements,
-            keyPoints: safeParseJson<string[]>(essay.task.keyPoints, []),
-            topicType: essay.task.topicType,
-            wordLimitMin: essay.task.wordLimitMin,
-            wordLimitMax: essay.task.wordLimitMax,
-          }
-        : {
-            title: '自由写作',
-            requirements: '请根据题目要求完成一篇英语作文。',
-            keyPoints: [],
-            topicType: 'narration',
-            wordLimitMin: 80,
-            wordLimitMax: 125,
-          };
-      result = createMockCorrection(essay.content, essay.wordCount ?? 0, taskInput);
-    } else if (!essay.task) {
-      result = await correctEssay(
-        essay.content,
-        {
+    // 构建 taskInput（所有分支共用，用于保存学段信息到 correction 记录）
+    const taskInput: EssayTaskInput = essay.task
+      ? {
+          title: essay.task.title,
+          requirements: essay.task.requirements,
+          keyPoints: safeParseJson<string[]>(essay.task.keyPoints, []),
+          topicType: essay.task.topicType,
+          wordLimitMin: essay.task.wordLimitMin,
+          wordLimitMax: essay.task.wordLimitMax,
+          stage: (essay.task.stage as 'junior' | 'senior') ?? 'junior',
+          seniorEssayType:
+            (essay.task.seniorEssayType as 'applied_writing' | 'continuation_writing') ?? undefined,
+          readingPassage: essay.task.readingPassage ?? undefined,
+          continuationParagraphStarts: essay.task.continuationParagraphStarts
+            ? safeParseJson<string[]>(essay.task.continuationParagraphStarts, [])
+            : undefined,
+        }
+      : {
           title: '自由写作',
           requirements: '请根据题目要求完成一篇英语作文。',
           keyPoints: [],
           topicType: 'narration',
           wordLimitMin: 80,
           wordLimitMax: 125,
-        },
-        router,
-      );
+          stage: 'junior' as const,
+        };
+
+    if (router.availableNames().length === 0) {
+      correctionLogger.warn('No AI provider configured, using mock correction');
+      result = createMockCorrection(essay.content, essay.wordCount ?? 0, taskInput);
+    } else if (!essay.task) {
+      result = await correctEssay(essay.content, taskInput, router);
     } else {
-      const taskInput: EssayTaskInput = {
-        title: essay.task.title,
-        requirements: essay.task.requirements,
-        keyPoints: safeParseJson<string[]>(essay.task.keyPoints, []),
-        topicType: essay.task.topicType,
-        wordLimitMin: essay.task.wordLimitMin,
-        wordLimitMax: essay.task.wordLimitMax,
-      };
       result = await correctEssay(essay.content, taskInput, router);
     }
 
@@ -195,6 +186,8 @@ export async function processCorrection(job: CorrectionJob): Promise<void> {
         aiProvider: result.aiProvider,
         aiModel: result.aiModel,
         correctionTimeMs,
+        stage: taskInput.stage ?? 'junior',
+        seniorEssayType: taskInput.seniorEssayType ?? null,
         createdAt: now,
       });
 

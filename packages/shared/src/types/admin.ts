@@ -16,6 +16,8 @@ export interface SchoolWithStats {
   code: string;
   name: string;
   region: string;
+  // 学段：junior=初中，senior=高中
+  stage: 'junior' | 'senior';
   contactName: string | null;
   contactPhone: string | null;
   isActive: boolean;
@@ -69,7 +71,10 @@ export const CORRECTION_STAGES: ReadonlyArray<{ value: CorrectionStage; label: s
 // 模型路由配置：为某个批改环节指定首选 API 配置（主模型）；
 // 主模型不可用时自动按全局优先级链回退到其余启用的配置。
 // apiConfigId 为 null 表示该环节未固定，直接按优先级选择。
+// routeStage 为 null 表示该路由适用于所有学段（默认）。
 export interface ModelRouteItem {
+  routeStage: 'junior' | 'senior' | null;
+  seniorEssayType: 'applied_writing' | 'continuation_writing' | null;
   stage: CorrectionStage;
   apiConfigId: string | null;
   provider: string | null;

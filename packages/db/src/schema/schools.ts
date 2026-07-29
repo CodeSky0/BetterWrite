@@ -8,6 +8,8 @@ export const schools = sqliteTable('schools', {
   code: text('code').notNull().default('').unique(),
   name: text('name').notNull(),
   region: text('region').notNull(),
+  // 学段：junior=初中，senior=高中
+  stage: text('stage').notNull().default('junior'),
   contactName: text('contact_name'),
   contactPhone: text('contact_phone'),
   isActive: integer('is_active', { mode: 'boolean' }).default(true).notNull(),

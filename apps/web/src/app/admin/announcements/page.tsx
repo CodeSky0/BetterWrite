@@ -1,11 +1,15 @@
 'use client';
 
-import { AdminActions, AdminStatusBlock, AdminTableWrapper } from '@/components/admin/admin-shared';
+import {
+  AdminActions,
+  AdminModal,
+  AdminStatusBlock,
+  AdminTableWrapper,
+} from '@/components/admin/admin-shared';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { RoleGuard } from '@/components/layout/role-guard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { fetcher } from '@/lib/api/fetcher';
 import { clientLogger } from '@/lib/client-logger';
@@ -40,7 +44,7 @@ export default function AdminAnnouncementsPage() {
   const [items, setItems] = useState<AnnouncementItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [_modalOpen, setModalOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<AnnouncementFormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -140,52 +144,48 @@ export default function AdminAnnouncementsPage() {
             </Button>
           </div>
 
-          <AdminStatusBlock error={error} loading={loading} empty={!loading && items.length === 0 && !error} emptyText="暂无公告" />
+          <AdminStatusBlock
+            error={error}
+            loading={loading}
+            empty={!loading && items.length === 0 && !error}
+            emptyText="暂无公告"
+          />
 
           {!loading && items.length > 0 && (
             <AdminTableWrapper>
-              <CardHeader>
-                <CardTitle className="text-title-20">公告列表</CardTitle>
-              </CardHeader>
-              <table className="w-full">
-                    <thead className="bg-neutral-2 text-neutral-8">
-                      <tr>
-                        <th className="text-left px-4 py-3 font-medium">标题</th>
-                        <th className="text-left px-4 py-3 font-medium">目标角色</th>
-                        <th className="text-center px-4 py-3 font-medium">状态</th>
-                        <th className="text-left px-4 py-3 font-medium">创建人</th>
-                        <th className="text-left px-4 py-3 font-medium">创建时间</th>
-                        <th className="text-center px-4 py-3 font-medium">操作</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {items.map((item) => (
-                        <tr key={item.id} className="hover:bg-neutral-2">
-                          <td className="px-4 py-3 text-neutral-10 font-medium">{item.title}</td>
-                          <td className="px-4 py-3 text-neutral-8">
-                            {ROLE_LABELS[item.targetRole] ?? item.targetRole}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <Badge variant={item.isActive ? 'default' : 'secondary'}>
-                              {item.isActive ? '生效' : '下线'}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3 text-neutral-8">{item.creatorName ?? '-'}</td>
-                          <td className="px-4 py-3 text-neutral-8 text-label-12">
-                            {item.createdAt}
-                          </td>
-                          <td className="px-4 py-3">
-                            <AdminActions
-                              onEdit={() => openEdit(item)}
-                              onDelete={() => handleDelete(item.id, item.title)}
-                            />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
+              <thead className="bg-neutral-2 text-neutral-8">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium">标题</th>
+                  <th className="text-left px-4 py-3 font-medium">目标角色</th>
+                  <th className="text-center px-4 py-3 font-medium">状态</th>
+                  <th className="text-left px-4 py-3 font-medium">创建人</th>
+                  <th className="text-left px-4 py-3 font-medium">创建时间</th>
+                  <th className="text-center px-4 py-3 font-medium">操作</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {items.map((item) => (
+                  <tr key={item.id} className="hover:bg-neutral-2">
+                    <td className="px-4 py-3 text-neutral-10 font-medium">{item.title}</td>
+                    <td className="px-4 py-3 text-neutral-8">
+                      {ROLE_LABELS[item.targetRole] ?? item.targetRole}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <Badge variant={item.isActive ? 'default' : 'secondary'}>
+                        {item.isActive ? '生效' : '下线'}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3 text-neutral-8">{item.creatorName ?? '-'}</td>
+                    <td className="px-4 py-3 text-neutral-8 text-label-12">{item.createdAt}</td>
+                    <td className="px-4 py-3">
+                      <AdminActions
+                        onEdit={() => openEdit(item)}
+                        onDelete={() => handleDelete(item.id, item.title)}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
             </AdminTableWrapper>
           )}
         </div>
@@ -195,55 +195,55 @@ export default function AdminAnnouncementsPage() {
           title={editingId ? '编辑公告' : '发布公告'}
           onClose={() => setModalOpen(false)}
         >
-                <div className="space-y-3">
-                  <div>
-                    <span className="text-label-12 text-neutral-8">标题 *</span>
-                    <Input
-                      value={form.title}
-                      onChange={(e) => setForm({ ...form, title: e.target.value })}
-                      placeholder="公告标题"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-label-12 text-neutral-8">内容 *</span>
-                    <textarea
-                      className="flex w-full rounded-md bg-paper px-3 py-2 text-copy-14 text-neutral-10 ring-1 ring-border min-h-[160px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                      value={form.content}
-                      onChange={(e) => setForm({ ...form, content: e.target.value })}
-                      placeholder="公告正文"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-label-12 text-neutral-8">目标角色</span>
-                    <select
-                      className="flex h-10 w-full rounded-md bg-paper px-3 py-2 text-copy-14 text-neutral-10 ring-1 ring-border"
-                      value={form.targetRole}
-                      onChange={(e) => setForm({ ...form, targetRole: e.target.value })}
-                    >
-                      <option value="all">所有人</option>
-                      <option value="teacher">教师</option>
-                      <option value="student">学生</option>
-                      <option value="school_admin">学校管理员</option>
-                      <option value="super_admin">超级管理员</option>
-                    </select>
-                  </div>
-                  <label className="flex items-center gap-2 text-copy-14 text-neutral-8">
-                    <input
-                      type="checkbox"
-                      checked={form.isActive}
-                      onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
-                    />
-                    立即生效
-                  </label>
-                </div>
-                <div className="flex justify-end gap-2 pt-2">
-                  <Button variant="secondary" onClick={() => setModalOpen(false)}>
-                    取消
-                  </Button>
-                  <Button onClick={handleSave} disabled={saving}>
-                    {saving ? '保存中...' : '保存'}
-                  </Button>
-                </div>
+          <div className="space-y-3">
+            <div>
+              <span className="text-label-12 text-neutral-8">标题 *</span>
+              <Input
+                value={form.title}
+                onChange={(e) => setForm({ ...form, title: e.target.value })}
+                placeholder="公告标题"
+              />
+            </div>
+            <div>
+              <span className="text-label-12 text-neutral-8">内容 *</span>
+              <textarea
+                className="flex w-full rounded-md bg-paper px-3 py-2 text-copy-14 text-neutral-10 ring-1 ring-border min-h-[160px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                value={form.content}
+                onChange={(e) => setForm({ ...form, content: e.target.value })}
+                placeholder="公告正文"
+              />
+            </div>
+            <div>
+              <span className="text-label-12 text-neutral-8">目标角色</span>
+              <select
+                className="flex h-10 w-full rounded-md bg-paper px-3 py-2 text-copy-14 text-neutral-10 ring-1 ring-border"
+                value={form.targetRole}
+                onChange={(e) => setForm({ ...form, targetRole: e.target.value })}
+              >
+                <option value="all">所有人</option>
+                <option value="teacher">教师</option>
+                <option value="student">学生</option>
+                <option value="school_admin">学校管理员</option>
+                <option value="super_admin">超级管理员</option>
+              </select>
+            </div>
+            <label className="flex items-center gap-2 text-copy-14 text-neutral-8">
+              <input
+                type="checkbox"
+                checked={form.isActive}
+                onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
+              />
+              立即生效
+            </label>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" onClick={() => setModalOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? '保存中...' : '保存'}
+            </Button>
+          </div>
         </AdminModal>
       </DashboardLayout>
     </RoleGuard>

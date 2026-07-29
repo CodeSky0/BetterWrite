@@ -25,11 +25,16 @@ export const apiConfigs = sqliteTable(
 
 // 模型路由：为每个批改环节（content/topicAdherence/language/structure/scorer）
 // 固定一个首选 API 配置；未配置的环节按 api_configs.priority 从高到低选择。
+// routeStage/seniorEssayType 用于按学段/题型差异化配置（null=适用于所有学段）。
 export const modelRoutes = sqliteTable(
   'model_routes',
   {
     id: text('id').primaryKey(),
-    stage: text('stage').notNull().unique(),
+    stage: text('stage').notNull(),
+    // 学段维度：junior=初中，senior=高中，null=所有学段通用
+    routeStage: text('route_stage'),
+    // 高中题型维度：applied_writing/continuation_writing，null=所有题型通用
+    seniorEssayType: text('senior_essay_type'),
     apiConfigId: text('api_config_id')
       .notNull()
       .references(() => apiConfigs.id, { onDelete: 'cascade' }),
@@ -38,6 +43,12 @@ export const modelRoutes = sqliteTable(
   },
   (t) => ({
     configIdx: index('model_routes_config_idx').on(t.apiConfigId),
+    // 唯一约束：同一批改环节 + 学段 + 题型只能有一条路由
+    routeUniqueIdx: index('model_routes_stage_unique_idx').on(
+      t.stage,
+      t.routeStage,
+      t.seniorEssayType,
+    ),
   }),
 );
 

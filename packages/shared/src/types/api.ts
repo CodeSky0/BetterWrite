@@ -40,6 +40,10 @@ export interface CorrectionDetail {
   presentationScore: number;
   totalScore: number;
   scoreTier: string;
+  // 学段标识：junior=初中，senior=高中
+  stage: 'junior' | 'senior';
+  // 高中题型（仅高中使用）
+  seniorEssayType: 'applied_writing' | 'continuation_writing' | null;
   errors: Array<{
     type: string;
     original: string;

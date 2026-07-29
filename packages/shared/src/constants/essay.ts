@@ -8,6 +8,32 @@ export const TopicType = {
 
 export type TopicTypeValue = (typeof TopicType)[keyof typeof TopicType];
 
+// 学段枚举：初中 / 高中
+export const EducationStage = {
+  JUNIOR: 'junior', // 初中
+  SENIOR: 'senior', // 高中
+} as const;
+
+export type EducationStageValue = (typeof EducationStage)[keyof typeof EducationStage];
+
+export const EducationStageLabels: Record<EducationStageValue, string> = {
+  [EducationStage.JUNIOR]: '初中',
+  [EducationStage.SENIOR]: '高中',
+};
+
+// 高中作文题型：应用文写作（25分）/ 读后续写（25分）
+export const SeniorEssayType = {
+  APPLIED_WRITING: 'applied_writing', // 应用文写作（25分）
+  CONTINUATION_WRITING: 'continuation_writing', // 读后续写（25分）
+} as const;
+
+export type SeniorEssayTypeValue = (typeof SeniorEssayType)[keyof typeof SeniorEssayType];
+
+export const SeniorEssayTypeLabels: Record<SeniorEssayTypeValue, string> = {
+  [SeniorEssayType.APPLIED_WRITING]: '应用文写作',
+  [SeniorEssayType.CONTINUATION_WRITING]: '读后续写',
+};
+
 export const TopicCategory = {
   SCHOOL_LIFE: 'school_life',
   SOCIAL_ISSUES: 'social_issues',
@@ -248,4 +274,12 @@ export function getErrorBookStatusLabel(status: string): string {
 
 export function getEssayStatusLabel(status: string): string {
   return EssayStatusLabels[status as EssayStatusValue] ?? status;
+}
+
+export function getEducationStageLabel(stage: string): string {
+  return EducationStageLabels[stage as EducationStageValue] ?? stage;
+}
+
+export function getSeniorEssayTypeLabel(essayType: string): string {
+  return SeniorEssayTypeLabels[essayType as SeniorEssayTypeValue] ?? essayType;
 }

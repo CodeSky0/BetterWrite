@@ -32,12 +32,20 @@ export const contentPointSchema = z.object({
 });
 
 export const contentAnalysisSchema = z.object({
-  pointCoverage: z.array(contentPointSchema),
+  pointCoverage: z.array(contentPointSchema).optional().default([]),
   // Bug #18: 子维度分数区间曾设为 0-4.5，但 contentScore 整体 max=5.0
   // 两者相加极易超过 5.0；改为 0-2.5 + 0-2.5 = 0-5.0 与 contentScore 上限一致。
-  expansionScore: z.number().min(0).max(2.5),
-  relevanceScore: z.number().min(0).max(2.5),
-  contentScore: z.number().min(0).max(5),
+  // 高中（25分制）内容维度占比 0-10.0，子维度各 0-5.0
+  expansionScore: z.number().min(0).max(5),
+  relevanceScore: z.number().min(0).max(5),
+  contentScore: z.number().min(0).max(10),
+  // 读后续写专用子维度（可选）
+  plotLogic: z.object({ score: z.number().min(0).max(5), comment: z.string() }).optional(),
+  originalFusion: z.object({ score: z.number().min(0).max(5), comment: z.string() }).optional(),
+  paragraphConnection: z
+    .object({ score: z.number().min(0).max(5), comment: z.string() })
+    .optional(),
+  creativity: z.object({ score: z.number().min(0).max(5), comment: z.string() }).optional(),
   comment: z.string(),
 });
 
@@ -74,23 +82,37 @@ export const languageAnalysisSchema = z.object({
   }),
   highlights: z.array(highlightSchema),
   revisedEssay: z.string(),
-  languageScore: z.number().min(0).max(4),
+  // 初中满分4.0，高中满分10.0
+  languageScore: z.number().min(0).max(10),
+  // 读后续写专用：与原文风格匹配度（可选）
+  styleMatchScore: z.number().min(0).max(2.5).optional(),
   comment: z.string(),
 });
 
-export const paragraphStructureSchema = z.object({
-  hasOpening: z.boolean(),
-  hasBody: z.boolean(),
-  hasClosing: z.boolean(),
-  openingQuality: z.enum(['poor', 'fair', 'good', 'excellent']),
-  bodyParagraphs: z.number().int().min(0),
-  closingQuality: z.enum(['poor', 'fair', 'good', 'excellent']),
-});
+// 初中标准三段式 + 高中读后续写双段结构共用（passthrough 允许额外字段）
+export const paragraphStructureSchema = z
+  .object({
+    hasOpening: z.boolean().optional(),
+    hasBody: z.boolean().optional(),
+    hasClosing: z.boolean().optional(),
+    openingQuality: z.enum(['poor', 'fair', 'good', 'excellent']).optional(),
+    bodyParagraphs: z.number().int().min(0).optional(),
+    closingQuality: z.enum(['poor', 'fair', 'good', 'excellent']).optional(),
+    // 读后续写专用字段
+    paragraphCount: z.number().int().min(0).optional(),
+    paragraph1Quality: z.string().optional(),
+    paragraph2Quality: z.string().optional(),
+    hasRisingAction: z.boolean().optional(),
+    hasClimax: z.boolean().optional(),
+    hasResolution: z.boolean().optional(),
+  })
+  .passthrough();
 
 export const connectiveUsageSchema = z.object({
   usedConnectives: z.array(z.string()),
   missingTypes: z.array(z.string()),
-  score: z.number().min(0).max(2.5),
+  // 初中满分2.5，高中满分5.0
+  score: z.number().min(0).max(5),
 });
 
 export const formatCheckSchema = z.object({
@@ -99,17 +121,23 @@ export const formatCheckSchema = z.object({
   hasClosing: z.boolean(),
   hasSignature: z.boolean(),
   isCorrect: z.boolean(),
+  // 读后续写专用字段（可选）
+  followsParagraphStarts: z.boolean().optional(),
+  twoParagraphs: z.boolean().optional(),
 });
 
-export const structureAnalysisSchema = z.object({
-  paragraphStructure: paragraphStructureSchema,
-  connectiveUsage: connectiveUsageSchema,
-  formatCheck: formatCheckSchema,
-  wordCount: z.number().int().min(0),
-  wordCountScore: z.number().min(0).max(2.5),
-  structureScore: z.number().min(0).max(2.5),
-  comment: z.string(),
-});
+export const structureAnalysisSchema = z
+  .object({
+    paragraphStructure: paragraphStructureSchema,
+    connectiveUsage: connectiveUsageSchema,
+    formatCheck: formatCheckSchema,
+    wordCount: z.number().int().min(0),
+    // 初中满分2.5，高中满分5.0
+    wordCountScore: z.number().min(0).max(5),
+    structureScore: z.number().min(0).max(5),
+    comment: z.string(),
+  })
+  .passthrough();
 
 export const suggestionSchema = z.object({
   priority: z.enum(['high', 'medium', 'low']),
@@ -117,32 +145,38 @@ export const suggestionSchema = z.object({
   suggestion: z.string(),
 });
 
-export const topicAdherenceAnalysisSchema = z.object({
-  taskUnderstanding: taskUnderstandingSchema,
-  keyPointCoverage: z.array(contentPointSchema),
-  requiredElements: z.array(requiredElementSchema),
-  topicRelevance: z.object({
-    // Bug #18: topicRelevance.score 曾设为 0-5，但 topicAdherence 整体 max=2.0
-    // 4.5 > 2.0 的样例值会让 LLM 误以为整体维度可打到 4.5 分；改为 0-2 对齐。
-    score: z.number().min(0).max(2),
+export const topicAdherenceAnalysisSchema = z
+  .object({
+    taskUnderstanding: taskUnderstandingSchema,
+    keyPointCoverage: z.array(contentPointSchema).optional().default([]),
+    requiredElements: z.array(requiredElementSchema).optional().default([]),
+    topicRelevance: z.object({
+      // Bug #18: topicRelevance.score 曾设为 0-5，但 topicAdherence 整体 max=2.0
+      // 4.5 > 2.0 的样例值会让 LLM 误以为整体维度可打到 4.5 分；改为 0-2 对齐。
+      // 高中满分3.0
+      score: z.number().min(0).max(3),
+      comment: z.string(),
+    }),
+    // 初中满分2.0，高中满分3.0
+    topicAdherenceScore: z.number().min(0).max(3),
+    issues: z.array(topicIssueSchema),
+    suggestions: z.array(suggestionSchema),
     comment: z.string(),
-  }),
-  topicAdherenceScore: z.number().min(0).max(2),
-  issues: z.array(topicIssueSchema),
-  suggestions: z.array(suggestionSchema),
-  comment: z.string(),
-});
+  })
+  .passthrough();
 
 export const dimensionScoresSchema = z.object({
-  topicAdherence: z.number().min(0).max(2),
-  content: z.number().min(0).max(5),
-  language: z.number().min(0).max(4),
-  structure: z.number().min(0).max(2.5),
+  // 初中满分: 2/5/4/2.5/1.5=15; 高中满分: 3/10/10/5/1.5=29.5 (允许维度分之和>25, scorer 会裁剪)
+  topicAdherence: z.number().min(0).max(3),
+  content: z.number().min(0).max(10),
+  language: z.number().min(0).max(10),
+  structure: z.number().min(0).max(5),
   presentation: z.number().min(0).max(1.5),
 });
 
 export const scorerSchema = z.object({
-  totalScore: z.number().min(0).max(15),
+  // 初中满分15，高中满分25
+  totalScore: z.number().min(0).max(25),
   scoreTier: z.string(),
   tierLabel: z.string(),
   dimensionScores: dimensionScoresSchema,

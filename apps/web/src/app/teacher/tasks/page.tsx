@@ -43,6 +43,13 @@ export default function TeacherTasksPage() {
     wordLimitMin: 80,
     wordLimitMax: 125,
     dueDate: '',
+    // 学段：junior=初中（默认），senior=高中
+    stage: 'junior' as 'junior' | 'senior',
+    // 高中题型：applied_writing=应用文写作，continuation_writing=读后续写
+    seniorEssayType: 'applied_writing' as 'applied_writing' | 'continuation_writing',
+    // 读后续写专用
+    readingPassage: '',
+    continuationParagraphStarts: '',
   });
   const [aiForm, setAiForm] = useState({
     topic: '',
@@ -122,6 +129,19 @@ export default function TeacherTasksPage() {
       wordLimitMin: Number(form.wordLimitMin),
       wordLimitMax: Number(form.wordLimitMax),
       dueDate: form.dueDate || undefined,
+      stage: form.stage,
+      seniorEssayType: form.stage === 'senior' ? form.seniorEssayType : undefined,
+      readingPassage:
+        form.stage === 'senior' && form.seniorEssayType === 'continuation_writing'
+          ? form.readingPassage.trim() || undefined
+          : undefined,
+      continuationParagraphStarts:
+        form.stage === 'senior' && form.seniorEssayType === 'continuation_writing'
+          ? form.continuationParagraphStarts
+              .split('\n')
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : undefined,
     };
 
     setIsSubmitting(true);
@@ -140,6 +160,10 @@ export default function TeacherTasksPage() {
           wordLimitMin: 80,
           wordLimitMax: 125,
           dueDate: '',
+          stage: 'junior',
+          seniorEssayType: 'applied_writing',
+          readingPassage: '',
+          continuationParagraphStarts: '',
         });
       } else {
         clientLogger.warn('[TeacherTasks] createTask failed:', res.error);
@@ -414,6 +438,62 @@ export default function TeacherTasksPage() {
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-2">
+                      <label htmlFor="stage" className="text-copy-14 font-medium text-neutral-10">
+                        学段
+                      </label>
+                      <select
+                        id="stage"
+                        value={form.stage}
+                        onChange={(e) => {
+                          const newStage = e.target.value as 'junior' | 'senior';
+                          setForm((prev) => ({
+                            ...prev,
+                            stage: newStage,
+                            // 高中默认使用应用文写作
+                            seniorEssayType:
+                              newStage === 'senior' ? 'applied_writing' : 'applied_writing',
+                            // 根据学段调整默认字数
+                            wordLimitMin: newStage === 'senior' ? 100 : 80,
+                            wordLimitMax: newStage === 'senior' ? 120 : 125,
+                          }));
+                        }}
+                        className="w-full h-10 rounded-md ring-1 ring-border bg-paper px-3 text-copy-14 text-neutral-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-all duration-fast ease-yohaku"
+                      >
+                        <option value="junior">初中（中考15分制）</option>
+                        <option value="senior">高中（高考25分制）</option>
+                      </select>
+                    </div>
+                    {form.stage === 'senior' && (
+                      <div className="space-y-2">
+                        <label
+                          htmlFor="seniorEssayType"
+                          className="text-copy-14 font-medium text-neutral-10"
+                        >
+                          高中题型
+                        </label>
+                        <select
+                          id="seniorEssayType"
+                          value={form.seniorEssayType}
+                          onChange={(e) => {
+                            const essayType = e.target.value as
+                              | 'applied_writing'
+                              | 'continuation_writing';
+                            setForm((prev) => ({
+                              ...prev,
+                              seniorEssayType: essayType,
+                              // 读后续写默认字数更多
+                              wordLimitMin: essayType === 'continuation_writing' ? 120 : 80,
+                              wordLimitMax: essayType === 'continuation_writing' ? 180 : 120,
+                            }));
+                          }}
+                          className="w-full h-10 rounded-md ring-1 ring-border bg-paper px-3 text-copy-14 text-neutral-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-all duration-fast ease-yohaku"
+                        >
+                          <option value="applied_writing">应用文写作</option>
+                          <option value="continuation_writing">读后续写</option>
+                        </select>
+                      </div>
+                    )}
+                    <div className="space-y-2">
                       <label
                         htmlFor="topicType"
                         className="text-copy-14 font-medium text-neutral-10"
@@ -449,6 +529,49 @@ export default function TeacherTasksPage() {
                         required
                       />
                     </div>
+                  </div>
+
+                  {/* 读后续写专用字段 */}
+                  {form.stage === 'senior' && form.seniorEssayType === 'continuation_writing' && (
+                    <>
+                      <div className="space-y-2">
+                        <label
+                          htmlFor="readingPassage"
+                          className="text-copy-14 font-medium text-neutral-10"
+                        >
+                          阅读原文（读后续写专用）
+                        </label>
+                        <textarea
+                          id="readingPassage"
+                          value={form.readingPassage}
+                          onChange={(e) => handleChange('readingPassage', e.target.value)}
+                          placeholder="请输入供学生阅读并续写的原文..."
+                          rows={4}
+                          className="w-full rounded-md ring-1 ring-border bg-paper px-3 py-2 text-copy-14 text-neutral-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-all duration-fast ease-yohaku"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label
+                          htmlFor="continuationParagraphStarts"
+                          className="text-copy-14 font-medium text-neutral-10"
+                        >
+                          段首句（每行一段）
+                        </label>
+                        <textarea
+                          id="continuationParagraphStarts"
+                          value={form.continuationParagraphStarts}
+                          onChange={(e) =>
+                            handleChange('continuationParagraphStarts', e.target.value)
+                          }
+                          placeholder={'Paragraph 1: ...\nParagraph 2: ...'}
+                          rows={3}
+                          className="w-full rounded-md ring-1 ring-border bg-paper px-3 py-2 text-copy-14 text-neutral-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-all duration-fast ease-yohaku"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-2">
                       <label
                         htmlFor="wordLimitMax"

@@ -25,6 +25,10 @@ export const corrections = sqliteTable(
     aiProvider: text('ai_provider'),
     aiModel: text('ai_model'),
     correctionTimeMs: integer('correction_time_ms'),
+    // 学段标识：junior=初中，senior=高中
+    stage: text('stage').notNull().default('junior'),
+    // 高中题型（仅高中使用）
+    seniorEssayType: text('senior_essay_type'),
     createdAt: text('created_at').notNull(),
   },
   (t) => ({
@@ -32,6 +36,7 @@ export const corrections = sqliteTable(
     // Composite indexes for analytics queries
     scoreTierIdx: index('corrections_score_tier_idx').on(t.scoreTier),
     createdAtIdx: index('corrections_created_at_idx').on(t.createdAt),
+    stageIdx: index('corrections_stage_idx').on(t.stage),
   }),
 );
 

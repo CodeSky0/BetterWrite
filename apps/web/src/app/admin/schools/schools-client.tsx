@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { fetcher } from '@/lib/api/fetcher';
 import { clientLogger } from '@/lib/client-logger';
 import type { SchoolWithStats } from '@betterwrite/shared';
+import { getEducationStageLabel } from '@betterwrite/shared';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
@@ -14,6 +15,7 @@ interface SchoolFormState {
   code: string;
   name: string;
   region: string;
+  stage: 'junior' | 'senior';
   contactName: string;
   contactPhone: string;
   isActive: boolean;
@@ -23,6 +25,7 @@ const EMPTY_FORM: SchoolFormState = {
   code: '',
   name: '',
   region: '',
+  stage: 'junior',
   contactName: '',
   contactPhone: '',
   isActive: true,
@@ -91,6 +94,7 @@ export function SchoolsClient({ initialSchools, initialRegion, initialError }: S
       code: school.code,
       name: school.name,
       region: school.region,
+      stage: (school.stage as 'junior' | 'senior') ?? 'junior',
       contactName: school.contactName ?? '',
       contactPhone: school.contactPhone ?? '',
       isActive: school.isActive,
@@ -111,6 +115,7 @@ export function SchoolsClient({ initialSchools, initialRegion, initialError }: S
         code: form.code,
         name: form.name,
         region: form.region,
+        stage: form.stage,
         contactName: form.contactName || undefined,
         contactPhone: form.contactPhone || undefined,
       };
@@ -200,6 +205,7 @@ export function SchoolsClient({ initialSchools, initialRegion, initialError }: S
                     <th className="text-left px-4 py-3 font-medium">代码</th>
                     <th className="text-left px-4 py-3 font-medium">名称</th>
                     <th className="text-left px-4 py-3 font-medium">区域</th>
+                    <th className="text-left px-4 py-3 font-medium">学段</th>
                     <th className="text-left px-4 py-3 font-medium">联系人</th>
                     <th className="text-right px-4 py-3 font-medium">教师</th>
                     <th className="text-right px-4 py-3 font-medium">学生</th>
@@ -216,6 +222,9 @@ export function SchoolsClient({ initialSchools, initialRegion, initialError }: S
                       <td className="px-4 py-3 text-neutral-8">{s.code}</td>
                       <td className="px-4 py-3 text-neutral-10 font-medium">{s.name}</td>
                       <td className="px-4 py-3 text-neutral-8">{s.region}</td>
+                      <td className="px-4 py-3 text-neutral-8">
+                        {getEducationStageLabel(s.stage ?? 'junior')}
+                      </td>
                       <td className="px-4 py-3 text-neutral-8">
                         {s.contactName ?? '-'}
                         {s.contactPhone ? ` (${s.contactPhone})` : ''}
@@ -293,6 +302,19 @@ export function SchoolsClient({ initialSchools, initialRegion, initialError }: S
                     onChange={(e) => setForm({ ...form, region: e.target.value })}
                     placeholder="如 南山区"
                   />
+                </div>
+                <div>
+                  <span className="text-label-12 text-neutral-8">学段</span>
+                  <select
+                    value={form.stage}
+                    onChange={(e) =>
+                      setForm({ ...form, stage: e.target.value as 'junior' | 'senior' })
+                    }
+                    className="w-full h-10 rounded-md ring-1 ring-border bg-paper px-3 text-copy-14 text-neutral-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-all duration-fast ease-yohaku"
+                  >
+                    <option value="junior">初中</option>
+                    <option value="senior">高中</option>
+                  </select>
                 </div>
                 <div>
                   <span className="text-label-12 text-neutral-8">联系人</span>

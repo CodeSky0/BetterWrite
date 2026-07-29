@@ -18,12 +18,17 @@ export const questionBank = sqliteTable(
     difficulty: text('difficulty').default('medium'),
     source: text('source'),
     isPublic: integer('is_public').default(1),
+    // 学段：junior=初中（默认），senior=高中
+    stage: text('stage').notNull().default('junior'),
+    // 高中题型（仅高中使用）
+    seniorEssayType: text('senior_essay_type'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
   (t) => ({
     topicTypeIdx: index('question_bank_topic_type_idx').on(t.topicType),
     difficultyIdx: index('question_bank_difficulty_idx').on(t.difficulty),
+    stageIdx: index('question_bank_stage_idx').on(t.stage),
   }),
 );
 

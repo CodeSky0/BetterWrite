@@ -1,11 +1,13 @@
 import type {
   AchievementTierValue,
   AiAssistantModeValue,
+  EducationStageValue,
   ErrorBookStatusValue,
   ErrorTypeValue,
   EssayStatusValue,
   ExerciseTypeValue,
   PracticeDifficultyValue,
+  SeniorEssayTypeValue,
   StudentTagValue,
   TeachingResourceDifficultyValue,
   TeachingResourceTypeValue,
@@ -27,6 +29,13 @@ export interface EssayTask {
   wordLimitMax: number;
   dueDate: Date | null;
   status: 'draft' | 'published' | 'closed';
+  // 学段标识：junior=初中（默认），senior=高中
+  stage: EducationStageValue;
+  // 高中题型：应用文写作 / 读后续写（仅高中使用）
+  seniorEssayType: SeniorEssayTypeValue | null;
+  // 读后续写专用字段
+  readingPassage: string | null;
+  continuationParagraphStarts: string[] | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -45,6 +54,8 @@ export interface Essay {
   correctionId: string | null;
   teacherReview?: string | null;
   teacherScore?: number | null;
+  // 学段标识（冗余存储，方便查询）
+  stage: EducationStageValue;
   submittedAt: string;
   correctedAt: string | null;
   createdAt: string;
@@ -182,6 +193,10 @@ export interface QuestionBankItem {
   timeLimitMinutes: number | null;
   difficulty: PracticeDifficultyValue;
   source: string | null;
+  // 学段标识
+  stage: EducationStageValue;
+  // 高中题型（仅高中使用）
+  seniorEssayType: SeniorEssayTypeValue | null;
   createdAt: string;
   updatedAt: string;
 }

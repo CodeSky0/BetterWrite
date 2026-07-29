@@ -1,4 +1,9 @@
-import { countWords, generateContentHash, getScoreTier } from '@betterwrite/shared';
+import {
+  countWords,
+  generateContentHash,
+  getScoreTier,
+  getSeniorScoreTier,
+} from '@betterwrite/shared';
 // cache 依赖 ioredis（Node-only），须从子路径导入，避免污染主入口的客户端可用性
 import { getCacheManager } from '@betterwrite/shared/cache';
 import type { BaseAIProvider } from '../providers/base.js';
@@ -22,6 +27,9 @@ import { scorerPrompt } from './scorer.js';
 import { structurePrompt } from './structure.js';
 import { topicAdherencePrompt } from './topic-adherence.js';
 
+export type EducationStage = 'junior' | 'senior';
+export type SeniorEssayType = 'applied_writing' | 'continuation_writing';
+
 export interface EssayTaskInput {
   title: string;
   requirements: string;
@@ -29,6 +37,14 @@ export interface EssayTaskInput {
   topicType: string;
   wordLimitMin: number;
   wordLimitMax: number;
+  // 学段：junior=初中（默认），senior=高中
+  stage: EducationStage;
+  // 高中题型：applied_writing=应用文写作，continuation_writing=读后续写（仅高中使用）
+  seniorEssayType?: SeniorEssayType;
+  // 读后续写专用：阅读原文
+  readingPassage?: string;
+  // 读后续写专用：段首句
+  continuationParagraphStarts?: string[];
 }
 
 export interface CorrectionResult {
@@ -93,7 +109,9 @@ export async function correctEssay(
     router.executeWithFallback('content', (provider) =>
       analyzeContent(provider, essayToUse, taskToUse),
     ),
-    router.executeWithFallback('language', (provider) => analyzeLanguage(provider, essayToUse)),
+    router.executeWithFallback('language', (provider) =>
+      analyzeLanguage(provider, essayToUse, taskToUse),
+    ),
     router.executeWithFallback('structure', (provider) =>
       analyzeStructure(provider, essayToUse, taskToUse),
     ),
@@ -152,8 +170,12 @@ async function analyzeTopicAdherence(
   });
 }
 
-async function analyzeLanguage(provider: BaseAIProvider, essay: string): Promise<LanguageAnalysis> {
-  const prompt = languagePrompt(essay);
+async function analyzeLanguage(
+  provider: BaseAIProvider,
+  essay: string,
+  task: EssayTaskInput,
+): Promise<LanguageAnalysis> {
+  const prompt = languagePrompt(essay, task);
   return provider.completeStructured(prompt, languageAnalysisSchema, { maxOutputTokens: 4096 });
 }
 
@@ -179,7 +201,11 @@ async function calculateScore(
 ): Promise<ScorerResult & { aiProvider: string; aiModel: string }> {
   const prompt = scorerPrompt(input);
   const result = await provider.completeStructured(prompt, scorerSchema, { maxOutputTokens: 2048 });
-  const tier = getScoreTier(result.totalScore);
+  // 按学段选择档次判定函数
+  const tier =
+    input.task.stage === 'senior'
+      ? getSeniorScoreTier(result.totalScore)
+      : getScoreTier(result.totalScore);
   return {
     ...result,
     scoreTier: tier.tier,

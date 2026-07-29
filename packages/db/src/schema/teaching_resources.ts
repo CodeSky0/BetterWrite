@@ -16,12 +16,15 @@ export const teachingResources = sqliteTable(
     createdBy: text('created_by')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    // 学段：junior=初中（默认），senior=高中
+    stage: text('stage').notNull().default('junior'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
   (t) => ({
     creatorIdx: index('teaching_resources_creator_idx').on(t.createdBy),
     typeIdx: index('teaching_resources_type_idx').on(t.type),
+    stageIdx: index('teaching_resources_stage_idx').on(t.stage),
   }),
 );
 

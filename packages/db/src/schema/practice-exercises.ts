@@ -21,12 +21,15 @@ export const practiceExercises = sqliteTable(
     aiFeedback: text('ai_feedback').default('{}'),
     durationMs: integer('duration_ms'),
     status: text('status').default('completed').notNull(),
+    // 学段：junior=初中（默认），senior=高中
+    stage: text('stage').notNull().default('junior'),
     startedAt: text('started_at'),
     submittedAt: text('submitted_at'),
     createdAt: text('created_at').notNull(),
   },
   (t) => ({
     studentIdx: index('practice_exercises_student_idx').on(t.studentId),
+    stageIdx: index('practice_exercises_stage_idx').on(t.stage),
   }),
 );
 

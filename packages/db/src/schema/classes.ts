@@ -13,6 +13,8 @@ export const classes = sqliteTable(
     code: text('code').notNull().default(''),
     name: text('name').notNull(),
     grade: text('grade').notNull(),
+    // 学段：junior=初中，senior=高中（冗余存储，方便查询）
+    stage: text('stage').notNull().default('junior'),
     teacherId: text('teacher_id').references(() => users.id),
     academicYear: text('academic_year'),
     isActive: integer('is_active', { mode: 'boolean' }).default(true).notNull(),
@@ -22,6 +24,7 @@ export const classes = sqliteTable(
   (t) => ({
     schoolIdx: index('classes_school_idx').on(t.schoolId),
     teacherIdx: index('classes_teacher_idx').on(t.teacherId),
+    stageIdx: index('classes_stage_idx').on(t.stage),
   }),
 );
 
