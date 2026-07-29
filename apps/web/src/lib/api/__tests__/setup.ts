@@ -14,6 +14,7 @@ import {
 import { UserRole } from '@betterwrite/shared';
 import bcrypt from 'bcryptjs';
 import { sql } from 'drizzle-orm';
+import { hashToken } from '../middleware';
 
 const MIGRATIONS_DIR = join(process.cwd(), 'packages', 'db', 'migrations');
 
@@ -173,6 +174,7 @@ export async function seedFixtures(): Promise<SeedFixtures> {
   });
 
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  // Bug #SEC-1.2: 测试 token 同样需要哈希存储，与生产逻辑一致。
   const teacherToken = randomUUID();
   const studentToken = randomUUID();
   const adminToken = randomUUID();
@@ -181,7 +183,7 @@ export async function seedFixtures(): Promise<SeedFixtures> {
     {
       id: randomUUID(),
       userId: teacherId,
-      token: teacherToken,
+      token: hashToken(teacherToken),
       platform: 'web',
       deviceName: 'test-teacher',
       expiresAt,
@@ -190,7 +192,7 @@ export async function seedFixtures(): Promise<SeedFixtures> {
     {
       id: randomUUID(),
       userId: studentId,
-      token: studentToken,
+      token: hashToken(studentToken),
       platform: 'web',
       deviceName: 'test-student',
       expiresAt,
@@ -199,7 +201,7 @@ export async function seedFixtures(): Promise<SeedFixtures> {
     {
       id: randomUUID(),
       userId: adminId,
-      token: adminToken,
+      token: hashToken(adminToken),
       platform: 'web',
       deviceName: 'test-admin',
       expiresAt,
