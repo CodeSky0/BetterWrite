@@ -22,6 +22,8 @@ export const questionBank = sqliteTable(
     stage: text('stage').notNull().default('junior'),
     // 高中题型（仅高中使用）
     seniorEssayType: text('senior_essay_type'),
+    // 出题人（用于公共题库展示）
+    createdBy: text('created_by'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },

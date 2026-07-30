@@ -8,17 +8,28 @@ import type {
   AnnouncementItem,
   ApiCallLogItem,
   ApiConfigItem,
+  ClassroomMonitorData,
   CorrectionStage,
   DailyQuote,
   ErrorBookGroup,
   ErrorBookItem,
   EssayDraft,
+  EssayVersion,
+  ExamForecast,
+  ExamHistoryItem,
+  LearningPath,
+  MicroExercise,
+  MicroExerciseResult,
+  MicroSkill,
   ModelRouteItem,
   PracticeExercise,
+  PublicQuestionWithStats,
   QuestionBankItem,
   SchoolStats,
   SchoolWithStats,
+  SimilarityCheckResult,
   StudentProgress,
+  WeeklyReport,
 } from '@betterwrite/shared';
 import type {
   AiGeneratedTask,
@@ -644,4 +655,126 @@ export const fetcher = {
         deductionRules: Record<string, unknown>;
       }>
     >('/api/admin/scoring-config'),
+
+  // ========== Feature 1: Essay Versions ==========
+  submitEssayVersion: (essayId: string, data: { content: string; title?: string }) =>
+    request<ApiResponse<EssayVersion>>(`/api/essays/${essayId}/versions`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getEssayVersions: (essayId: string) =>
+    request<ApiResponse<EssayVersion[]>>(`/api/essays/${essayId}/versions`),
+
+  // ========== Feature 2: Micro Skills ==========
+  getMicroSkills: () =>
+    request<ApiResponse<Array<MicroSkill & { totalExercises: number }>>>(
+      '/api/student/micro-skills',
+    ),
+  getMicroSkillExercises: (skillId: string) =>
+    request<ApiResponse<Array<MicroExercise & { isCompleted: boolean }>>>(
+      `/api/student/micro-skills/${skillId}/exercises`,
+    ),
+  submitMicroExercise: (
+    skillId: string,
+    exerciseId: string,
+    data: { answer: string; durationMs?: number },
+  ) =>
+    request<ApiResponse<MicroExerciseResult>>(
+      `/api/student/micro-skills/${skillId}/exercises/${exerciseId}/submit`,
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
+
+  // ========== Feature 3: Classroom Monitor ==========
+  updateWritingSession: (data: {
+    taskId?: string;
+    classId: string;
+    currentWordCount: number;
+    elapsedTimeMs: number;
+    writingSpeed: number;
+    isStalled?: boolean;
+    status?: 'active' | 'paused' | 'submitted';
+  }) =>
+    request<ApiResponse<{ id: string }>>('/api/writing/sessions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getClassroomMonitor: (classId: string) =>
+    request<ApiResponse<ClassroomMonitorData>>(`/api/teacher/writing-monitor/${classId}`),
+
+  // ========== Feature 4: Weekly Reports ==========
+  getWeeklyReports: () => request<ApiResponse<WeeklyReport[]>>('/api/student/weekly-report'),
+  generateWeeklyReports: (classId: string) =>
+    request<
+      ApiResponse<{ generated: number; classId: string; weekStart: string; weekEnd: string }>
+    >('/api/teacher/weekly-reports/generate', {
+      method: 'POST',
+      body: JSON.stringify({ classId }),
+    }),
+
+  // ========== Feature 5: Similarity Check ==========
+  triggerSimilarityCheck: (essayId: string) =>
+    request<ApiResponse<SimilarityCheckResult>>(`/api/essays/${essayId}/similarity-check`, {
+      method: 'POST',
+    }),
+  getSimilarityCheck: (essayId: string) =>
+    request<ApiResponse<SimilarityCheckResult | null>>(`/api/essays/${essayId}/similarity-check`),
+
+  // ========== Feature 6: Collaborative Question Bank ==========
+  getPublicQuestions: (params?: {
+    topicType?: string;
+    difficulty?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.topicType) query.set('topicType', params.topicType);
+    if (params?.difficulty) query.set('difficulty', params.difficulty);
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.offset) query.set('offset', String(params.offset));
+    const qs = query.toString();
+    return request<ApiResponse<PublicQuestionWithStats[]>>(
+      `/api/teacher/public-questions${qs ? `?${qs}` : ''}`,
+    );
+  },
+  rateResource: (
+    resourceId: string,
+    data: { resourceType: 'question' | 'resource'; score: number; comment?: string },
+  ) =>
+    request<ApiResponse<{ id: string }>>(`/api/teacher/resources/${resourceId}/rate`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  commentResource: (
+    resourceId: string,
+    data: { resourceType: 'question' | 'resource'; content: string },
+  ) =>
+    request<ApiResponse<{ id: string }>>(`/api/teacher/resources/${resourceId}/comment`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  // ========== Feature 7: Learning Path ==========
+  getLearningPath: () => request<ApiResponse<LearningPath>>('/api/student/learning-path'),
+
+  // ========== Feature 8: Exam Forecast ==========
+  getExamForecast: (classId: string) =>
+    request<ApiResponse<ExamForecast>>(`/api/teacher/exam-forecast/${classId}`),
+  getAdminExamHistory: () => request<ApiResponse<ExamHistoryItem[]>>('/api/admin/exam-history'),
+  createAdminExamHistory: (data: {
+    year: number;
+    topicType: string;
+    topicCategory: string;
+    title: string;
+    requirements: string;
+    keyPoints?: string[];
+    wordLimitMin?: number;
+    wordLimitMax?: number;
+    tags?: string[];
+    modelEssay?: string;
+    trendNotes?: string;
+  }) =>
+    request<ApiResponse<{ id: string }>>('/api/admin/exam-history', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 };

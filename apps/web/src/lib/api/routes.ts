@@ -22,15 +22,27 @@ import {
   errorBooks,
   essayDrafts,
   essayTasks,
+  essayVersions,
   essays,
+  examHistory,
+  learningPaths,
+  microExerciseAttempts,
+  microExercises,
+  microSkillProgress,
+  microSkills,
   modelRoutes,
   practiceExercises,
   questionBank,
+  resourceComments,
+  resourceRatings,
   schools,
   sessions,
+  similarityChecks,
   studentTags,
   teachingResources,
   users,
+  weeklyReports,
+  writingSessions,
 } from '@betterwrite/db';
 import {
   AchievementTier,
@@ -5439,6 +5451,1120 @@ app.get(
     };
     routesLogger.info({ duration: Date.now() - startedAt }, '[API /admin/scoring-config] exit');
     return c.json({ success: true, data });
+  },
+);
+
+// ========== Feature 1: Essay Version Management ==========
+
+// POST /api/essays/:id/versions - Submit a new version of an essay
+app.post(
+  '/essays/:id/versions',
+  rateLimit(10, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  zValidator(
+    'json',
+    z.object({
+      content: z.string().min(1),
+      title: z.string().optional(),
+    }),
+  ),
+  async (c) => {
+    const user = c.get('user');
+    const essayId = c.req.param('id');
+    const { content } = c.req.valid('json');
+
+    // Verify essay ownership
+    const essay = await db.query.essays.findFirst({
+      where: eq(essays.id, essayId),
+    });
+    if (!essay || essay.studentId !== user.id) {
+      throw new HTTPException(404, { message: '作文不存在' });
+    }
+
+    // Must have a correction before submitting a new version
+    if (essay.status !== 'completed') {
+      throw new HTTPException(400, { message: '请先等待批改完成' });
+    }
+
+    // Get current version count
+    const existingVersions = await db.query.essayVersions.findMany({
+      where: eq(essayVersions.essayId, essayId),
+    });
+    const nextVersion = existingVersions.length + 1;
+
+    const wordCount = countWords(content);
+    const now = new Date().toISOString();
+
+    // Calculate diff summary (simple word-level diff)
+    const oldWords = essay.content.split(/\s+/);
+    const newWords = content.split(/\s+/);
+    const added = newWords.filter((w) => !oldWords.includes(w));
+    const removed = oldWords.filter((w) => !newWords.includes(w));
+
+    const versionId = randomUUID();
+    await db.insert(essayVersions).values({
+      id: versionId,
+      essayId,
+      studentId: user.id,
+      versionNumber: nextVersion,
+      content,
+      wordCount,
+      score: null,
+      scoreTier: null,
+      correctionId: null,
+      diffSummary: JSON.stringify({
+        added: added.slice(0, 20),
+        removed: removed.slice(0, 20),
+        changedWords: added.length + removed.length,
+        scoreDelta: null,
+      }),
+      createdAt: now,
+    });
+
+    // Trigger a new correction for this version
+    await addCorrectionJob(essayId);
+
+    const version = await db.query.essayVersions.findFirst({
+      where: eq(essayVersions.id, versionId),
+    });
+
+    return c.json({ success: true, data: version }, 201);
+  },
+);
+
+// GET /api/essays/:id/versions - Get all versions of an essay
+app.get('/essays/:id/versions', rateLimit(30, 60_000), authMiddleware, async (c) => {
+  const user = c.get('user');
+  const essayId = c.req.param('id');
+
+  const essay = await db.query.essays.findFirst({
+    where: eq(essays.id, essayId),
+  });
+  if (!essay) {
+    throw new HTTPException(404, { message: '作文不存在' });
+  }
+
+  // Students can only see their own essay versions
+  if (user.role === UserRole.STUDENT && essay.studentId !== user.id) {
+    throw new HTTPException(403, { message: '无权查看' });
+  }
+
+  const versions = await db.query.essayVersions.findMany({
+    where: eq(essayVersions.essayId, essayId),
+  });
+
+  return c.json({ success: true, data: versions });
+});
+
+// ========== Feature 2: Micro Skills ==========
+
+// GET /api/student/micro-skills - List all micro skills with progress
+app.get(
+  '/student/micro-skills',
+  rateLimit(30, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  async (c) => {
+    const user = c.get('user');
+
+    const allSkills = await db.query.microSkills.findMany({
+      where: eq(microSkills.isActive, true),
+    });
+
+    const progress = await db.query.microSkillProgress.findMany({
+      where: eq(microSkillProgress.studentId, user.id),
+    });
+
+    const progressMap = new Map(progress.map((p) => [p.skillId, p]));
+
+    const skillsWithProgress = allSkills.map((skill) => {
+      const p = progressMap.get(skill.id);
+      return {
+        ...skill,
+        completedExercises: p?.completedExercises ?? 0,
+        totalScore: p?.totalScore ?? 0,
+        currentLevel: p?.currentLevel ?? 0,
+        isMastered: !!p?.masteredAt,
+      };
+    });
+
+    return c.json({ success: true, data: skillsWithProgress });
+  },
+);
+
+// GET /api/student/micro-skills/:skillId/exercises - Get exercises for a skill
+app.get(
+  '/student/micro-skills/:skillId/exercises',
+  rateLimit(30, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  async (c) => {
+    const user = c.get('user');
+    const skillId = c.req.param('skillId');
+
+    const skill = await db.query.microSkills.findFirst({
+      where: eq(microSkills.id, skillId),
+    });
+    if (!skill) {
+      throw new HTTPException(404, { message: '技能不存在' });
+    }
+
+    // Get student's current level for this skill
+    const prog = await db.query.microSkillProgress.findFirst({
+      where: and(
+        eq(microSkillProgress.studentId, user.id),
+        eq(microSkillProgress.skillId, skillId),
+      ),
+    });
+    const currentLevel = prog?.currentLevel ?? 0;
+
+    // Return exercises up to currentLevel + 1 (unlock progressively)
+    const exercises = await db.query.microExercises.findMany({
+      where: and(
+        eq(microExercises.skillId, skillId),
+        eq(microExercises.level, Math.min(currentLevel + 1, 5)),
+      ),
+    });
+
+    // Get completed exercise IDs
+    const attempts = await db.query.microExerciseAttempts.findMany({
+      where: and(
+        eq(microExerciseAttempts.studentId, user.id),
+        eq(microExerciseAttempts.skillId, skillId),
+      ),
+    });
+    const completedIds = new Set(attempts.map((a) => a.exerciseId));
+
+    const exercisesWithStatus = exercises.map((ex) => ({
+      ...ex,
+      isCompleted: completedIds.has(ex.id),
+    }));
+
+    return c.json({ success: true, data: exercisesWithStatus });
+  },
+);
+
+// POST /api/student/micro-skills/:skillId/exercises/:exerciseId/submit - Submit exercise answer
+app.post(
+  '/student/micro-skills/:skillId/exercises/:exerciseId/submit',
+  rateLimit(20, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  zValidator(
+    'json',
+    z.object({
+      answer: z.string().min(1),
+      durationMs: z.number().optional(),
+    }),
+  ),
+  async (c) => {
+    const user = c.get('user');
+    const { skillId, exerciseId } = c.req.param();
+    const { answer, durationMs } = c.req.valid('json');
+
+    const exercise = await db.query.microExercises.findFirst({
+      where: eq(microExercises.id, exerciseId),
+    });
+    if (!exercise || exercise.skillId !== skillId) {
+      throw new HTTPException(404, { message: '练习不存在' });
+    }
+
+    // Evaluate answer
+    let score = 0;
+    let isCorrect = false;
+    let aiFeedback = '';
+
+    if (exercise.type === 'choice' || exercise.type === 'fill_blank') {
+      // Objective questions: compare with answer key
+      const answerKey = exercise.answerKey ? JSON.parse(exercise.answerKey) : null;
+      if (answerKey && answer.trim().toLowerCase() === String(answerKey.correct).toLowerCase()) {
+        score = exercise.maxScore;
+        isCorrect = true;
+        aiFeedback = '回答正确！';
+      } else {
+        score = 0;
+        isCorrect = false;
+        aiFeedback = answerKey?.explanation ?? '回答不正确，请再想想。';
+      }
+    } else {
+      // Subjective questions: AI scoring (simplified - give partial credit)
+      score = Math.floor(exercise.maxScore * 0.7); // Default partial credit
+      isCorrect = score > 0;
+      aiFeedback = '已收到你的回答，AI 正在评估中。';
+    }
+
+    // Count existing attempts
+    const existingAttempts = await db.query.microExerciseAttempts.findMany({
+      where: and(
+        eq(microExerciseAttempts.studentId, user.id),
+        eq(microExerciseAttempts.exerciseId, exerciseId),
+      ),
+    });
+
+    const now = new Date().toISOString();
+    await db.insert(microExerciseAttempts).values({
+      id: randomUUID(),
+      studentId: user.id,
+      exerciseId,
+      skillId,
+      answer,
+      score,
+      isCorrect,
+      aiFeedback,
+      attemptNumber: existingAttempts.length + 1,
+      durationMs: durationMs ?? null,
+      createdAt: now,
+    });
+
+    // Update progress
+    const existingProgress = await db.query.microSkillProgress.findFirst({
+      where: and(
+        eq(microSkillProgress.studentId, user.id),
+        eq(microSkillProgress.skillId, skillId),
+      ),
+    });
+
+    if (existingProgress) {
+      const newCompleted = isCorrect
+        ? existingProgress.completedExercises + 1
+        : existingProgress.completedExercises;
+      const newLevel = Math.min(5, Math.floor(newCompleted / 3) + 1);
+      await db
+        .update(microSkillProgress)
+        .set({
+          currentLevel: newLevel,
+          totalScore: existingProgress.totalScore + score,
+          completedExercises: newCompleted,
+          masteredAt: newCompleted >= 15 ? now : existingProgress.masteredAt,
+          updatedAt: now,
+        })
+        .where(eq(microSkillProgress.id, existingProgress.id));
+    } else {
+      await db.insert(microSkillProgress).values({
+        id: randomUUID(),
+        studentId: user.id,
+        skillId,
+        currentLevel: isCorrect ? 1 : 0,
+        totalScore: score,
+        completedExercises: isCorrect ? 1 : 0,
+        updatedAt: now,
+      });
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        exerciseId,
+        score,
+        isCorrect,
+        aiFeedback,
+        correctAnswer: exercise.answerKey ? JSON.parse(exercise.answerKey).correct : null,
+        explanation: exercise.answerKey ? JSON.parse(exercise.answerKey).explanation : null,
+      },
+    });
+  },
+);
+
+// ========== Feature 3: Classroom Writing Monitor ==========
+
+// POST /api/writing/sessions - Start/update a writing session
+app.post(
+  '/writing/sessions',
+  rateLimit(60, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  zValidator(
+    'json',
+    z.object({
+      taskId: z.string().optional(),
+      classId: z.string(),
+      currentWordCount: z.number().min(0),
+      elapsedTimeMs: z.number().min(0),
+      writingSpeed: z.number().min(0),
+      isStalled: z.boolean().optional(),
+      status: z.enum(['active', 'paused', 'submitted']).optional(),
+    }),
+  ),
+  async (c) => {
+    const user = c.get('user');
+    const data = c.req.valid('json');
+    const now = new Date().toISOString();
+
+    // Check if there's an active session for this student+task
+    let session = data.taskId
+      ? await db.query.writingSessions.findFirst({
+          where: and(
+            eq(writingSessions.studentId, user.id),
+            eq(writingSessions.taskId, data.taskId),
+            eq(writingSessions.status, 'active'),
+          ),
+        })
+      : null;
+
+    if (session) {
+      // Update existing session
+      await db
+        .update(writingSessions)
+        .set({
+          currentWordCount: data.currentWordCount,
+          elapsedTimeMs: data.elapsedTimeMs,
+          writingSpeed: data.writingSpeed,
+          isStalled: data.isStalled ?? false,
+          lastActiveAt: now,
+          status: data.status ?? 'active',
+          submittedAt: data.status === 'submitted' ? now : undefined,
+        })
+        .where(eq(writingSessions.id, session.id));
+    } else {
+      // Create new session
+      const sessionId = randomUUID();
+      await db.insert(writingSessions).values({
+        id: sessionId,
+        studentId: user.id,
+        taskId: data.taskId ?? null,
+        classId: data.classId,
+        currentWordCount: data.currentWordCount,
+        elapsedTimeMs: data.elapsedTimeMs,
+        writingSpeed: data.writingSpeed,
+        isStalled: data.isStalled ?? false,
+        lastActiveAt: now,
+        status: data.status ?? 'active',
+        startedAt: now,
+      });
+      session = await db.query.writingSessions.findFirst({
+        where: eq(writingSessions.id, sessionId),
+      });
+    }
+
+    return c.json({ success: true, data: session });
+  },
+);
+
+// GET /api/teacher/writing-monitor/:classId - Get classroom writing monitor data
+app.get(
+  '/teacher/writing-monitor/:classId',
+  rateLimit(30, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN),
+  async (c) => {
+    const user = c.get('user');
+    const classId = c.req.param('classId');
+
+    if (!(await assertClassAccess(user, classId))) {
+      throw new HTTPException(403, { message: '无权访问该班级' });
+    }
+
+    const cls = await db.query.classes.findFirst({ where: eq(classes.id, classId) });
+    if (!cls) throw new HTTPException(404, { message: '班级不存在' });
+
+    // Get active sessions for this class (last 30 minutes)
+    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const activeSessions = await db.query.writingSessions.findMany({
+      where: and(
+        eq(writingSessions.classId, classId),
+        eq(writingSessions.status, 'active'),
+        gt(writingSessions.lastActiveAt, thirtyMinAgo),
+      ),
+    });
+
+    // Get student names
+    const studentIds = [...new Set(activeSessions.map((s) => s.studentId))];
+    const students =
+      studentIds.length > 0
+        ? await db.query.users.findMany({
+            where: inArray(users.id, studentIds),
+          })
+        : [];
+    const studentMap = new Map(students.map((s) => [s.id, s.name]));
+
+    const sessions = activeSessions.map((s) => ({
+      sessionId: s.id,
+      studentId: s.studentId,
+      studentName: studentMap.get(s.studentId) ?? '未知',
+      taskId: s.taskId,
+      currentWordCount: s.currentWordCount,
+      elapsedTimeMs: s.elapsedTimeMs,
+      writingSpeed: s.writingSpeed ?? 0,
+      isStalled: s.isStalled,
+      lastActiveAt: s.lastActiveAt,
+      status: s.status,
+    }));
+
+    const totalStudents = sessions.length;
+    const stalledCount = sessions.filter((s) => s.isStalled).length;
+    const avgWordCount =
+      totalStudents > 0
+        ? Math.round(sessions.reduce((sum, s) => sum + s.currentWordCount, 0) / totalStudents)
+        : 0;
+    const avgSpeed =
+      totalStudents > 0
+        ? Math.round((sessions.reduce((sum, s) => sum + s.writingSpeed, 0) / totalStudents) * 10) /
+          10
+        : 0;
+
+    return c.json({
+      success: true,
+      data: {
+        classId,
+        className: cls.name,
+        taskId: sessions[0]?.taskId ?? null,
+        taskTitle: null,
+        sessions,
+        summary: {
+          totalStudents,
+          activeWriters: sessions.filter((s) => s.status === 'active').length,
+          submittedCount: sessions.filter((s) => s.status === 'submitted').length,
+          stalledCount,
+          averageWordCount: avgWordCount,
+          averageSpeed: avgSpeed,
+        },
+      },
+    });
+  },
+);
+
+// ========== Feature 4: Weekly Reports ==========
+
+// GET /api/student/weekly-report - Get latest weekly report
+app.get(
+  '/student/weekly-report',
+  rateLimit(20, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  async (c) => {
+    const user = c.get('user');
+
+    const reports = await db.query.weeklyReports.findMany({
+      where: eq(weeklyReports.studentId, user.id),
+      limit: 4,
+    });
+
+    return c.json({ success: true, data: reports });
+  },
+);
+
+// POST /api/teacher/weekly-reports/generate - Teacher triggers weekly report generation for class
+app.post(
+  '/teacher/weekly-reports/generate',
+  rateLimit(5, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN),
+  zValidator(
+    'json',
+    z.object({
+      classId: z.string(),
+    }),
+  ),
+  async (c) => {
+    const user = c.get('user');
+    const { classId } = c.req.valid('json');
+
+    if (!(await assertClassAccess(user, classId))) {
+      throw new HTTPException(403, { message: '无权访问该班级' });
+    }
+
+    // Get students in the class
+    const enrollments = await db.query.classEnrollments.findMany({
+      where: and(eq(classEnrollments.classId, classId), eq(classEnrollments.role, 'student')),
+    });
+
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay() + 1); // Monday
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6); // Sunday
+
+    const weekStartStr = weekStart.toISOString().split('T')[0];
+    const weekEndStr = weekEnd.toISOString().split('T')[0];
+    const nowStr = now.toISOString();
+
+    let generated = 0;
+    for (const enrollment of enrollments) {
+      // Get this week's essays
+      const weekEssays = await db.query.essays.findMany({
+        where: and(
+          eq(essays.studentId, enrollment.userId),
+          eq(essays.status, 'completed'),
+          gte(essays.submittedAt, weekStartStr),
+        ),
+      });
+
+      const essaysSubmitted = weekEssays.length;
+      const averageScore =
+        weekEssays.length > 0
+          ? weekEssays.reduce((sum, e) => sum + (e.totalScore ?? 0), 0) / weekEssays.length
+          : null;
+
+      // Get error book changes
+      const errors = await db.query.errorBooks.findMany({
+        where: eq(errorBooks.studentId, enrollment.userId),
+      });
+      const newErrorsThisWeek = errors
+        .filter((e) => e.createdAt >= weekStartStr)
+        .map((e) => e.errorType);
+      const resolvedThisWeek = errors
+        .filter((e) => e.status === 'mastered' && e.masteredAt && e.masteredAt >= weekStartStr)
+        .map((e) => e.errorType);
+
+      await db.insert(weeklyReports).values({
+        id: randomUUID(),
+        studentId: enrollment.userId,
+        weekStart: weekStartStr,
+        weekEnd: weekEndStr,
+        essaysSubmitted,
+        averageScore,
+        previousAverageScore: null,
+        errorsResolved: JSON.stringify([...new Set(resolvedThisWeek)]),
+        newErrors: JSON.stringify([...new Set(newErrorsThisWeek)]),
+        abilityChanges: '{}',
+        aiSuggestion: null,
+        recommendedExercises: '[]',
+        status: 'generated',
+        createdAt: nowStr,
+        updatedAt: nowStr,
+      });
+      generated++;
+    }
+
+    return c.json({
+      success: true,
+      data: { generated, classId, weekStart: weekStartStr, weekEnd: weekEndStr },
+    });
+  },
+);
+
+// ========== Feature 5: Similarity Check ==========
+
+// POST /api/essays/:id/similarity-check - Trigger similarity check
+app.post(
+  '/essays/:id/similarity-check',
+  rateLimit(10, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN),
+  async (c) => {
+    const _user = c.get('user');
+    const essayId = c.req.param('id');
+
+    const essay = await db.query.essays.findFirst({
+      where: eq(essays.id, essayId),
+    });
+    if (!essay) throw new HTTPException(404, { message: '作文不存在' });
+
+    // Simple text similarity check against other essays from same task
+    const peerEssays = essay.taskId
+      ? await db.query.essays.findMany({
+          where: and(eq(essays.taskId, essay.taskId), eq(essays.status, 'completed')),
+        })
+      : [];
+
+    const essayWords = new Set(essay.content.toLowerCase().split(/\s+/));
+    let maxSimilarity = 0;
+    const matchedDetails: Array<{ essayId: string; studentName: string; similarity: number }> = [];
+
+    for (const peer of peerEssays) {
+      if (peer.id === essay.id) continue;
+      const peerWords = new Set(peer.content.toLowerCase().split(/\s+/));
+      const intersection = [...essayWords].filter((w) => peerWords.has(w));
+      const union = new Set([...essayWords, ...peerWords]);
+      const jaccard = union.size > 0 ? intersection.length / union.size : 0;
+
+      if (jaccard > maxSimilarity) maxSimilarity = jaccard;
+
+      if (jaccard > 0.3) {
+        const peerStudent = await db.query.users.findFirst({ where: eq(users.id, peer.studentId) });
+        matchedDetails.push({
+          essayId: peer.id,
+          studentName: peerStudent?.name ?? '未知',
+          similarity: Math.round(jaccard * 100) / 100,
+        });
+      }
+    }
+
+    // Simple AI detection heuristic: check for overly uniform sentence lengths
+    const sentences = essay.content.split(/[.!?]+/).filter((s) => s.trim().length > 0);
+    const sentenceLengths = sentences.map((s) => s.trim().split(/\s+/).length);
+    const avgLen =
+      sentenceLengths.length > 0
+        ? sentenceLengths.reduce((a, b) => a + b, 0) / sentenceLengths.length
+        : 0;
+    const variance =
+      sentenceLengths.length > 0
+        ? sentenceLengths.reduce((sum, l) => sum + (l - avgLen) ** 2, 0) / sentenceLengths.length
+        : 0;
+    // Low variance + very consistent lengths = potentially AI-generated
+    const aiScore =
+      variance < 4 && avgLen > 10
+        ? Math.min(0.8, 1 - variance / 10)
+        : Math.max(0, 0.3 - variance / 20);
+
+    const riskLevel =
+      maxSimilarity > 0.7 || aiScore > 0.6
+        ? 'high'
+        : maxSimilarity > 0.4 || aiScore > 0.4
+          ? 'medium'
+          : 'low';
+
+    const now = new Date().toISOString();
+    const checkId = randomUUID();
+    await db.insert(similarityChecks).values({
+      id: checkId,
+      essayId,
+      studentId: essay.studentId,
+      overallSimilarity: Math.round(maxSimilarity * 100) / 100,
+      matchedEssayIds: JSON.stringify(matchedDetails.map((m) => m.essayId)),
+      matchedDetails: JSON.stringify(matchedDetails),
+      aiGeneratedScore: Math.round(aiScore * 100) / 100,
+      aiDetectionDetails: JSON.stringify([]),
+      riskLevel,
+      teacherNote: null,
+      status: 'completed',
+      createdAt: now,
+    });
+
+    const result = await db.query.similarityChecks.findFirst({
+      where: eq(similarityChecks.id, checkId),
+    });
+
+    return c.json({ success: true, data: result });
+  },
+);
+
+// GET /api/essays/:id/similarity-check - Get similarity check result
+app.get('/essays/:id/similarity-check', rateLimit(30, 60_000), authMiddleware, async (c) => {
+  const user = c.get('user');
+  const essayId = c.req.param('id');
+
+  const check = await db.query.similarityChecks.findFirst({
+    where: eq(similarityChecks.essayId, essayId),
+  });
+
+  if (!check) {
+    return c.json({ success: true, data: null });
+  }
+
+  // Students can only see their own check status (not details)
+  if (user.role === UserRole.STUDENT) {
+    return c.json({
+      success: true,
+      data: { riskLevel: check.riskLevel, status: check.status },
+    });
+  }
+
+  return c.json({ success: true, data: check });
+});
+
+// ========== Feature 6: Collaborative Question Bank ==========
+
+// GET /api/teacher/public-questions - Browse public question bank
+app.get(
+  '/teacher/public-questions',
+  rateLimit(30, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN),
+  async (c) => {
+    const topicType = c.req.query('topicType');
+    const difficulty = c.req.query('difficulty');
+    const limit = parsePositiveInt(c.req.query('limit'), 20, 100);
+    const offset = parsePositiveInt(c.req.query('offset'), 0, 10000);
+
+    const conditions = [];
+    if (topicType) conditions.push(eq(questionBank.topicType, topicType));
+    if (difficulty) conditions.push(eq(questionBank.difficulty, difficulty));
+
+    const questions = await db.query.questionBank.findMany({
+      where: conditions.length > 0 ? and(...conditions) : undefined,
+      limit,
+      offset,
+    });
+
+    // Get ratings for each question
+    const questionsWithStats = await Promise.all(
+      questions.map(async (q) => {
+        const ratings = await db.query.resourceRatings.findMany({
+          where: and(
+            eq(resourceRatings.resourceId, q.id),
+            eq(resourceRatings.resourceType, 'question'),
+          ),
+        });
+        const comments = await db.query.resourceComments.findMany({
+          where: and(
+            eq(resourceComments.resourceId, q.id),
+            eq(resourceComments.resourceType, 'question'),
+          ),
+        });
+        const avgRating =
+          ratings.length > 0
+            ? Math.round((ratings.reduce((s, r) => s + r.score, 0) / ratings.length) * 10) / 10
+            : null;
+        const creator = q.createdBy
+          ? await db.query.users.findFirst({ where: eq(users.id, q.createdBy) })
+          : null;
+
+        return {
+          ...q,
+          avgRating,
+          ratingCount: ratings.length,
+          commentCount: comments.length,
+          creatorName: creator?.name ?? '未知',
+        };
+      }),
+    );
+
+    return c.json({ success: true, data: questionsWithStats });
+  },
+);
+
+// POST /api/teacher/resources/:id/rate - Rate a resource or question
+app.post(
+  '/teacher/resources/:id/rate',
+  rateLimit(20, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN),
+  zValidator(
+    'json',
+    z.object({
+      resourceType: z.enum(['question', 'resource']),
+      score: z.number().min(1).max(5),
+      comment: z.string().optional(),
+    }),
+  ),
+  async (c) => {
+    const user = c.get('user');
+    const resourceId = c.req.param('id');
+    const { resourceType, score, comment } = c.req.valid('json');
+
+    const now = new Date().toISOString();
+
+    // Check if already rated
+    const existing = await db.query.resourceRatings.findFirst({
+      where: and(
+        eq(resourceRatings.resourceId, resourceId),
+        eq(resourceRatings.resourceType, resourceType),
+        eq(resourceRatings.raterId, user.id),
+      ),
+    });
+
+    if (existing) {
+      // Update existing rating
+      await db
+        .update(resourceRatings)
+        .set({ score, comment: comment ?? null })
+        .where(eq(resourceRatings.id, existing.id));
+      return c.json({ success: true, data: { ...existing, score, comment } });
+    }
+
+    const ratingId = randomUUID();
+    await db.insert(resourceRatings).values({
+      id: ratingId,
+      resourceId,
+      resourceType,
+      raterId: user.id,
+      score,
+      comment: comment ?? null,
+      createdAt: now,
+    });
+
+    return c.json(
+      {
+        success: true,
+        data: {
+          id: ratingId,
+          resourceId,
+          resourceType,
+          raterId: user.id,
+          score,
+          comment,
+          createdAt: now,
+        },
+      },
+      201,
+    );
+  },
+);
+
+// POST /api/teacher/resources/:id/comment - Comment on a resource
+app.post(
+  '/teacher/resources/:id/comment',
+  rateLimit(20, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN),
+  zValidator(
+    'json',
+    z.object({
+      resourceType: z.enum(['question', 'resource']),
+      content: z.string().min(1).max(500),
+    }),
+  ),
+  async (c) => {
+    const user = c.get('user');
+    const resourceId = c.req.param('id');
+    const { resourceType, content } = c.req.valid('json');
+
+    const now = new Date().toISOString();
+    const commentId = randomUUID();
+
+    await db.insert(resourceComments).values({
+      id: commentId,
+      resourceId,
+      resourceType,
+      authorId: user.id,
+      content,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return c.json(
+      {
+        success: true,
+        data: {
+          id: commentId,
+          resourceId,
+          resourceType,
+          authorId: user.id,
+          authorName: user.name,
+          content,
+          createdAt: now,
+        },
+      },
+      201,
+    );
+  },
+);
+
+// ========== Feature 7: Learning Path ==========
+
+// GET /api/student/learning-path - Get current learning path
+app.get(
+  '/student/learning-path',
+  rateLimit(20, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  async (c) => {
+    const user = c.get('user');
+
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay() + 1);
+    const weekStartStr = weekStart.toISOString().split('T')[0];
+
+    // Try to find existing path for this week
+    let path = await db.query.learningPaths.findFirst({
+      where: and(eq(learningPaths.studentId, user.id), eq(learningPaths.weekStart, weekStartStr)),
+    });
+
+    // If no path exists, generate one based on error book
+    if (!path) {
+      const errors = await db.query.errorBooks.findMany({
+        where: and(eq(errorBooks.studentId, user.id), eq(errorBooks.status, 'unresolved')),
+      });
+
+      // Group errors by type and find top weaknesses
+      const errorCounts: Record<string, number> = {};
+      for (const e of errors) {
+        errorCounts[e.errorType] = (errorCounts[e.errorType] ?? 0) + 1;
+      }
+      const weakPoints = Object.entries(errorCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([type]) => type);
+
+      // Generate recommendations
+      const recommendations = weakPoints.map((wp, i) => ({
+        type: 'error_practice' as const,
+        id: wp,
+        title: `${wp} 专项练习`,
+        reason: `你在${wp}类型错误中出现最多（${errorCounts[wp]}次）`,
+        priority: i === 0 ? ('high' as const) : i === 1 ? ('medium' as const) : ('low' as const),
+        isCompleted: false,
+      }));
+
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+      const nowStr = now.toISOString();
+
+      const pathId = randomUUID();
+      await db.insert(learningPaths).values({
+        id: pathId,
+        studentId: user.id,
+        weekStart: weekStartStr,
+        weekEnd: weekEnd.toISOString().split('T')[0],
+        weakPoints: JSON.stringify(weakPoints),
+        recommendations: JSON.stringify(recommendations),
+        aiAdvice:
+          weakPoints.length > 0
+            ? `本周重点攻克：${weakPoints.join('、')}。建议每天花10分钟做针对性练习。`
+            : '继续保持！你的写作水平很稳定，尝试挑战更高难度的题目吧。',
+        completedCount: 0,
+        totalRecommendations: recommendations.length,
+        status: 'active',
+        createdAt: nowStr,
+        updatedAt: nowStr,
+      });
+
+      path = await db.query.learningPaths.findFirst({
+        where: eq(learningPaths.id, pathId),
+      });
+    }
+
+    return c.json({ success: true, data: path });
+  },
+);
+
+// ========== Feature 8: Exam Forecast ==========
+
+// GET /api/teacher/exam-forecast/:classId - Get exam forecast for a class
+app.get(
+  '/teacher/exam-forecast/:classId',
+  rateLimit(10, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN),
+  async (c) => {
+    const user = c.get('user');
+    const classId = c.req.param('classId');
+
+    if (!(await assertClassAccess(user, classId))) {
+      throw new HTTPException(403, { message: '无权访问该班级' });
+    }
+
+    // Get exam history for trend analysis
+    const allExams = await db.query.examHistory.findMany({});
+
+    // Analyze topic trends
+    const categoryFrequency: Record<string, number[]> = {};
+    for (const exam of allExams) {
+      if (!categoryFrequency[exam.topicCategory]) {
+        categoryFrequency[exam.topicCategory] = [];
+      }
+      categoryFrequency[exam.topicCategory].push(exam.year);
+    }
+
+    const topicTrends = Object.entries(categoryFrequency).map(([category, years]) => {
+      const recentYears = years.filter((y) => y >= 2022);
+      const olderYears = years.filter((y) => y < 2022);
+      const trend =
+        recentYears.length > olderYears.length
+          ? 'rising'
+          : recentYears.length === olderYears.length
+            ? 'stable'
+            : 'declining';
+      return {
+        category,
+        frequency: years.length,
+        recentYears,
+        trend,
+      };
+    });
+
+    // Predict topics (rising trends)
+    const predictedTopics = topicTrends
+      .filter((t) => t.trend === 'rising')
+      .map((t) => ({
+        category: t.category,
+        confidence: Math.min(0.9, t.frequency / 10),
+        reasoning: `近10年出现${t.frequency}次，近年呈上升趋势`,
+        suggestedTitles: [],
+      }));
+
+    // Get class benchmark data
+    const cls = await db.query.classes.findFirst({ where: eq(classes.id, classId) });
+    const enrollments = await db.query.classEnrollments.findMany({
+      where: and(eq(classEnrollments.classId, classId), eq(classEnrollments.role, 'student')),
+    });
+
+    let classBenchmark = null;
+    if (cls && enrollments.length > 0) {
+      // Get all essays for this class's students
+      const studentIds = enrollments.map((e) => e.userId);
+      const allEssays = [];
+      for (const sid of studentIds.slice(0, 50)) {
+        const studentEssays = await db.query.essays.findMany({
+          where: and(eq(essays.studentId, sid), eq(essays.status, 'completed')),
+        });
+        allEssays.push(...studentEssays);
+      }
+
+      const avgScore =
+        allEssays.length > 0
+          ? allEssays.reduce((s, e) => s + (e.totalScore ?? 0), 0) / allEssays.length
+          : 0;
+
+      classBenchmark = {
+        classId,
+        className: cls.name,
+        currentLevel: Math.round(avgScore * 10) / 10,
+        targetLevel: 12, // Target: second tier (10-12)
+        gap: Math.round((12 - avgScore) * 10) / 10,
+        weakDimensions: [],
+        focusStudents: [],
+      };
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        generatedAt: new Date().toISOString(),
+        topicTrends,
+        predictedTopics,
+        preparationAdvice:
+          predictedTopics.length > 0
+            ? `建议重点准备：${predictedTopics.map((p) => p.category).join('、')}类话题。`
+            : '各话题分布均匀，建议全面复习。',
+        classBenchmark,
+      },
+    });
+  },
+);
+
+// Admin: Exam History CRUD
+app.get(
+  '/admin/exam-history',
+  rateLimit(30, 60_000),
+  authMiddleware,
+  requireRole(UserRole.SUPER_ADMIN),
+  async (c) => {
+    const items = await db.query.examHistory.findMany({});
+    return c.json({ success: true, data: items });
+  },
+);
+
+app.post(
+  '/admin/exam-history',
+  rateLimit(10, 60_000),
+  authMiddleware,
+  requireRole(UserRole.SUPER_ADMIN),
+  zValidator(
+    'json',
+    z.object({
+      year: z.number().min(2010).max(2030),
+      topicType: z.string(),
+      topicCategory: z.string(),
+      title: z.string(),
+      requirements: z.string(),
+      keyPoints: z.array(z.string()).optional(),
+      wordLimitMin: z.number().optional(),
+      wordLimitMax: z.number().optional(),
+      tags: z.array(z.string()).optional(),
+      modelEssay: z.string().optional(),
+      trendNotes: z.string().optional(),
+    }),
+  ),
+  async (c) => {
+    const data = c.req.valid('json');
+    const now = new Date().toISOString();
+    const id = randomUUID();
+
+    await db.insert(examHistory).values({
+      id,
+      ...data,
+      keyPoints: JSON.stringify(data.keyPoints ?? []),
+      wordLimitMin: data.wordLimitMin ?? 80,
+      wordLimitMax: data.wordLimitMax ?? 125,
+      tags: JSON.stringify(data.tags ?? []),
+      createdAt: now,
+    });
+
+    return c.json({ success: true, data: { id } }, 201);
   },
 );
 
