@@ -11,6 +11,7 @@ import {
   BarChart3,
   BookOpen,
   FileText,
+  Flame,
   LayoutDashboard,
   Library,
   LogOut,
@@ -113,6 +114,12 @@ const navItems: NavItem[] = [
     href: '/student/dashboard',
     label: '学习首页',
     icon: <LayoutDashboard className="w-4 h-4" />,
+    roles: [UserRole.STUDENT],
+  },
+  {
+    href: '/student/daily-challenge',
+    label: '每日挑战',
+    icon: <Flame className="w-4 h-4" />,
     roles: [UserRole.STUDENT],
   },
   {
