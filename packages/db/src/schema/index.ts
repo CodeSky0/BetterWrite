@@ -26,3 +26,4 @@ export * from './learning-paths.js';
 export * from './exam-history.js';
 export * from './notification-logs.js';
 export * from './daily-challenges.js';
+export * from './writing-materials.js';

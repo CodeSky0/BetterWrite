@@ -34,6 +34,7 @@ import type {
   SimilarityCheckResult,
   StudentProgress,
   WeeklyReport,
+  WritingMaterial,
 } from '@betterwrite/shared';
 import type {
   AiGeneratedTask,
@@ -827,4 +828,78 @@ export const fetcher = {
     request<ApiResponse<ChallengeStreak & { totalSubmissions: number }>>(
       '/api/daily-challenges/streak',
     ),
+
+  // ========== Feature 11: Writing Material Library ==========
+  getWritingMaterials: (params?: {
+    type?: string;
+    topicType?: string;
+    stage?: string;
+    difficulty?: string;
+    keyword?: string;
+    page?: number;
+    pageSize?: number;
+  }) =>
+    request<
+      ApiResponse<{
+        list: WritingMaterial[];
+        total: number;
+        page: number;
+        pageSize: number;
+      }>
+    >(
+      `/api/writing-materials?${new URLSearchParams({
+        ...(params?.type ? { type: params.type } : {}),
+        ...(params?.topicType ? { topicType: params.topicType } : {}),
+        ...(params?.stage ? { stage: params.stage } : {}),
+        ...(params?.difficulty ? { difficulty: params.difficulty } : {}),
+        ...(params?.keyword ? { keyword: params.keyword } : {}),
+        page: String(params?.page ?? 1),
+        pageSize: String(params?.pageSize ?? 20),
+      }).toString()}`,
+    ),
+  getWritingMaterial: (id: string) =>
+    request<ApiResponse<WritingMaterial>>(`/api/writing-materials/${id}`),
+  createWritingMaterial: (data: {
+    type: string;
+    title: string;
+    content: string;
+    topicType?: string;
+    stage?: string;
+    difficulty: string;
+    tags?: string[];
+    source?: string;
+    isPublic?: boolean;
+  }) =>
+    request<ApiResponse<WritingMaterial>>('/api/writing-materials', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateWritingMaterial: (
+    id: string,
+    data: Partial<{
+      type: string;
+      title: string;
+      content: string;
+      topicType?: string;
+      stage?: string;
+      difficulty: string;
+      tags?: string[];
+      source?: string;
+      isPublic?: boolean;
+    }>,
+  ) =>
+    request<ApiResponse<WritingMaterial>>(`/api/writing-materials/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteWritingMaterial: (id: string) =>
+    request<ApiResponse<null>>(`/api/writing-materials/${id}`, { method: 'DELETE' }),
+  favoriteWritingMaterial: (id: string) =>
+    request<ApiResponse<{ isFavorited: boolean }>>(`/api/writing-materials/${id}/favorite`, {
+      method: 'POST',
+    }),
+  unfavoriteWritingMaterial: (id: string) =>
+    request<ApiResponse<{ isFavorited: boolean }>>(`/api/writing-materials/${id}/favorite`, {
+      method: 'DELETE',
+    }),
 };

@@ -42,10 +42,12 @@ import {
   schools,
   sessions,
   similarityChecks,
+  studentMaterialFavorites,
   studentTags,
   teachingResources,
   users,
   weeklyReports,
+  writingMaterials,
   writingSessions,
 } from '@betterwrite/db';
 import {
@@ -55,6 +57,8 @@ import {
   StudentTag,
   TeachingResourceType,
   UserRole,
+  WritingMaterialDifficulty,
+  WritingMaterialType,
   calculateAbilityRadar,
   calculateClassRank,
   calculateErrorStats,
@@ -74,6 +78,7 @@ import type {
   ApiConfigItem,
   CorrectionStage,
   DailyQuote,
+  EducationStageValue,
   ErrorBookGroup,
   EssayDraft,
   ModelRouteItem,
@@ -82,6 +87,9 @@ import type {
   SchoolStats,
   SchoolWithStats,
   StudentProgress,
+  WritingMaterial,
+  WritingMaterialDifficultyValue,
+  WritingMaterialTypeValue,
 } from '@betterwrite/shared';
 import { DEDUCTION_RULES, SCORE_TIERS, SCORING_WEIGHTS } from '@betterwrite/shared';
 import { CORRECTION_STAGES } from '@betterwrite/shared';
@@ -7009,6 +7017,367 @@ app.get(
         totalSubmissions: submissions.length,
       },
     });
+  },
+);
+
+// ========== Feature 11: Writing Material Library ==========
+
+const writingMaterialSchema = z.object({
+  type: z.enum([
+    WritingMaterialType.PHRASE,
+    WritingMaterialType.SENTENCE_PATTERN,
+    WritingMaterialType.CONNECTOR,
+    WritingMaterialType.TEMPLATE,
+    WritingMaterialType.ARGUMENT,
+    WritingMaterialType.IDIOM,
+  ]),
+  title: z.string().min(1).max(200),
+  content: z.string().min(1).max(2000),
+  topicType: z.string().max(100).optional(),
+  stage: z.enum(['junior', 'senior']).default('junior'),
+  difficulty: z.enum([
+    WritingMaterialDifficulty.EASY,
+    WritingMaterialDifficulty.MEDIUM,
+    WritingMaterialDifficulty.HARD,
+  ]),
+  tags: z.array(z.string().max(50)).max(20).default([]),
+  source: z.string().max(200).optional(),
+  isPublic: z.boolean().default(true),
+});
+
+const materialFiltersSchema = z.object({
+  type: z.string().optional(),
+  topicType: z.string().optional(),
+  stage: z.enum(['junior', 'senior']).optional(),
+  difficulty: z.string().optional(),
+  keyword: z.string().optional(),
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(20),
+});
+
+function parseTags(tags: string | null): string[] {
+  if (!tags) return [];
+  try {
+    const parsed = JSON.parse(tags);
+    return Array.isArray(parsed) ? parsed.filter((t) => typeof t === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function toMaterialResponse(
+  row: typeof writingMaterials.$inferSelect,
+  isFavorited = false,
+): WritingMaterial {
+  return {
+    id: row.id,
+    type: row.type as WritingMaterialTypeValue,
+    title: row.title,
+    content: row.content,
+    topicType: row.topicType ?? null,
+    stage: (row.stage as EducationStageValue) ?? 'junior',
+    difficulty: (row.difficulty as WritingMaterialDifficultyValue) ?? 'medium',
+    tags: parseTags(row.tags),
+    source: row.source ?? null,
+    usageCount: row.usageCount,
+    isPublic: row.isPublic,
+    createdBy: row.createdBy,
+    schoolId: row.schoolId ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    isFavorited,
+  };
+}
+
+function canManageMaterial(
+  user: AuthVariables['user'],
+  material: typeof writingMaterials.$inferSelect,
+): boolean {
+  if (user.role === UserRole.SUPER_ADMIN) return true;
+  if (user.role === UserRole.SCHOOL_ADMIN && user.schoolId && material.schoolId === user.schoolId) {
+    return true;
+  }
+  if (user.role === UserRole.TEACHER && material.createdBy === user.id) return true;
+  return false;
+}
+
+// 学生/教师查询公开或本校素材
+app.get(
+  '/writing-materials',
+  rateLimit(30, 60_000),
+  authMiddleware,
+  zValidator('query', materialFiltersSchema),
+  async (c) => {
+    const user = c.get('user');
+    const filters = c.req.valid('query');
+    routesLogger.info({ userId: user.id, filters }, '[API /writing-materials]');
+
+    const conditions = [];
+    if (filters.type) conditions.push(eq(writingMaterials.type, filters.type));
+    if (filters.topicType) conditions.push(eq(writingMaterials.topicType, filters.topicType));
+    if (filters.stage) conditions.push(eq(writingMaterials.stage, filters.stage));
+    if (filters.difficulty) conditions.push(eq(writingMaterials.difficulty, filters.difficulty));
+    if (filters.keyword) {
+      const kw = `%${filters.keyword}%`;
+      conditions.push(
+        sql`(${writingMaterials.title} LIKE ${kw} OR ${writingMaterials.content} LIKE ${kw} OR ${writingMaterials.tags} LIKE ${kw})`,
+      );
+    }
+
+    // 学生/教师只能看到公开素材或本校素材
+    if (user.role === UserRole.STUDENT || user.role === UserRole.TEACHER) {
+      conditions.push(
+        sql`(${writingMaterials.isPublic} = 1 OR ${writingMaterials.schoolId} = ${user.schoolId ?? ''})`,
+      );
+    }
+
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const offset = (filters.page - 1) * filters.pageSize;
+
+    const [list, totalRes] = await Promise.all([
+      db.query.writingMaterials.findMany({
+        where,
+        orderBy: desc(writingMaterials.createdAt),
+        limit: filters.pageSize,
+        offset,
+      }),
+      db
+        .select({ count: count() })
+        .from(writingMaterials)
+        .where(where ?? sql`1=1`),
+    ]);
+
+    const favorites =
+      user.role === UserRole.STUDENT
+        ? new Set(
+            (
+              await db.query.studentMaterialFavorites.findMany({
+                where: eq(studentMaterialFavorites.studentId, user.id),
+              })
+            ).map((f) => f.materialId),
+          )
+        : new Set<string>();
+
+    return c.json({
+      success: true,
+      data: {
+        list: list.map((m) => toMaterialResponse(m, favorites.has(m.id))),
+        total: totalRes[0]?.count ?? 0,
+        page: filters.page,
+        pageSize: filters.pageSize,
+      },
+    });
+  },
+);
+
+// 获取单个素材
+app.get('/writing-materials/:id', rateLimit(30, 60_000), authMiddleware, async (c) => {
+  const user = c.get('user');
+  const id = c.req.param('id');
+  routesLogger.info({ userId: user.id, materialId: id }, '[API /writing-materials/:id]');
+
+  const material = await db.query.writingMaterials.findFirst({
+    where: eq(writingMaterials.id, id),
+  });
+  if (!material) {
+    return c.json({ success: false, error: '素材不存在' }, 404);
+  }
+
+  if (user.role === UserRole.STUDENT || user.role === UserRole.TEACHER) {
+    const visible = material.isPublic || material.schoolId === user.schoolId;
+    if (!visible) {
+      return c.json({ success: false, error: '无权查看该素材' }, 403);
+    }
+  }
+
+  let isFavorited = false;
+  if (user.role === UserRole.STUDENT) {
+    const fav = await db.query.studentMaterialFavorites.findFirst({
+      where: and(
+        eq(studentMaterialFavorites.studentId, user.id),
+        eq(studentMaterialFavorites.materialId, id),
+      ),
+    });
+    isFavorited = Boolean(fav);
+  }
+
+  return c.json({
+    success: true,
+    data: toMaterialResponse(material, isFavorited),
+  });
+});
+
+// 创建素材（教师/管理员）
+app.post(
+  '/writing-materials',
+  rateLimit(10, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN),
+  zValidator('json', writingMaterialSchema),
+  async (c) => {
+    const user = c.get('user');
+    const body = c.req.valid('json');
+    routesLogger.info({ userId: user.id, type: body.type }, '[API POST /writing-materials]');
+
+    const now = new Date().toISOString();
+    const id = randomUUID();
+    await db.insert(writingMaterials).values({
+      id,
+      ...body,
+      schoolId: user.schoolId ?? null,
+      tags: JSON.stringify(body.tags),
+      createdBy: user.id,
+      usageCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const material = await db.query.writingMaterials.findFirst({
+      where: eq(writingMaterials.id, id),
+    });
+    if (!material) {
+      return c.json({ success: false, error: '素材创建失败' }, 500);
+    }
+    return c.json({ success: true, data: toMaterialResponse(material) }, 201);
+  },
+);
+
+// 更新素材
+app.put(
+  '/writing-materials/:id',
+  rateLimit(10, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN),
+  zValidator('json', writingMaterialSchema.partial()),
+  async (c) => {
+    const user = c.get('user');
+    const id = c.req.param('id');
+    const body = c.req.valid('json');
+    routesLogger.info({ userId: user.id, materialId: id }, '[API PUT /writing-materials/:id]');
+
+    const material = await db.query.writingMaterials.findFirst({
+      where: eq(writingMaterials.id, id),
+    });
+    if (!material) {
+      return c.json({ success: false, error: '素材不存在' }, 404);
+    }
+    if (!canManageMaterial(user, material)) {
+      return c.json({ success: false, error: '无权修改该素材' }, 403);
+    }
+
+    const now = new Date().toISOString();
+    await db
+      .update(writingMaterials)
+      .set({
+        ...body,
+        tags: body.tags ? JSON.stringify(body.tags) : undefined,
+        updatedAt: now,
+      })
+      .where(eq(writingMaterials.id, id));
+
+    const updated = await db.query.writingMaterials.findFirst({
+      where: eq(writingMaterials.id, id),
+    });
+    if (!updated) {
+      return c.json({ success: false, error: '素材更新失败' }, 500);
+    }
+    return c.json({ success: true, data: toMaterialResponse(updated) });
+  },
+);
+
+// 删除素材
+app.delete(
+  '/writing-materials/:id',
+  rateLimit(10, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN),
+  async (c) => {
+    const user = c.get('user');
+    const id = c.req.param('id');
+    routesLogger.info({ userId: user.id, materialId: id }, '[API DELETE /writing-materials/:id]');
+
+    const material = await db.query.writingMaterials.findFirst({
+      where: eq(writingMaterials.id, id),
+    });
+    if (!material) {
+      return c.json({ success: false, error: '素材不存在' }, 404);
+    }
+    if (!canManageMaterial(user, material)) {
+      return c.json({ success: false, error: '无权删除该素材' }, 403);
+    }
+
+    await db.delete(writingMaterials).where(eq(writingMaterials.id, id));
+    return c.json({ success: true, data: null });
+  },
+);
+
+// 学生收藏/取消收藏
+app.post(
+  '/writing-materials/:id/favorite',
+  rateLimit(10, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  async (c) => {
+    const user = c.get('user');
+    const id = c.req.param('id');
+    routesLogger.info(
+      { userId: user.id, materialId: id },
+      '[API POST /writing-materials/:id/favorite]',
+    );
+
+    const material = await db.query.writingMaterials.findFirst({
+      where: eq(writingMaterials.id, id),
+    });
+    if (!material) {
+      return c.json({ success: false, error: '素材不存在' }, 404);
+    }
+    const visible = material.isPublic || material.schoolId === user.schoolId;
+    if (!visible) {
+      return c.json({ success: false, error: '无权查看该素材' }, 403);
+    }
+
+    const existing = await db.query.studentMaterialFavorites.findFirst({
+      where: and(
+        eq(studentMaterialFavorites.studentId, user.id),
+        eq(studentMaterialFavorites.materialId, id),
+      ),
+    });
+    if (!existing) {
+      await db.insert(studentMaterialFavorites).values({
+        id: randomUUID(),
+        studentId: user.id,
+        materialId: id,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    return c.json({ success: true, data: { isFavorited: true } });
+  },
+);
+
+app.delete(
+  '/writing-materials/:id/favorite',
+  rateLimit(10, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  async (c) => {
+    const user = c.get('user');
+    const id = c.req.param('id');
+    routesLogger.info(
+      { userId: user.id, materialId: id },
+      '[API DELETE /writing-materials/:id/favorite]',
+    );
+
+    await db
+      .delete(studentMaterialFavorites)
+      .where(
+        and(
+          eq(studentMaterialFavorites.studentId, user.id),
+          eq(studentMaterialFavorites.materialId, id),
+        ),
+      );
+
+    return c.json({ success: true, data: { isFavorited: false } });
   },
 );
 

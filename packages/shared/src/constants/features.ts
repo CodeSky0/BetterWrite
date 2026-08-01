@@ -163,3 +163,41 @@ export const NotificationChannel = {
 
 export type NotificationChannelValue =
   (typeof NotificationChannel)[keyof typeof NotificationChannel];
+
+// 写作素材类型
+export const WritingMaterialType = {
+  PHRASE: 'phrase',
+  SENTENCE_PATTERN: 'sentence_pattern',
+  CONNECTOR: 'connector',
+  TEMPLATE: 'template',
+  ARGUMENT: 'argument',
+  IDIOM: 'idiom',
+} as const;
+
+export type WritingMaterialTypeValue =
+  (typeof WritingMaterialType)[keyof typeof WritingMaterialType];
+
+export const WritingMaterialTypeLabels: Record<WritingMaterialTypeValue, string> = {
+  [WritingMaterialType.PHRASE]: '地道表达',
+  [WritingMaterialType.SENTENCE_PATTERN]: '高分句型',
+  [WritingMaterialType.CONNECTOR]: '衔接词',
+  [WritingMaterialType.TEMPLATE]: '开头结尾模板',
+  [WritingMaterialType.ARGUMENT]: '论证素材',
+  [WritingMaterialType.IDIOM]: '习语谚语',
+};
+
+// 素材难度
+export const WritingMaterialDifficulty = {
+  EASY: 'easy',
+  MEDIUM: 'medium',
+  HARD: 'hard',
+} as const;
+
+export type WritingMaterialDifficultyValue =
+  (typeof WritingMaterialDifficulty)[keyof typeof WritingMaterialDifficulty];
+
+export const WritingMaterialDifficultyLabels: Record<WritingMaterialDifficultyValue, string> = {
+  [WritingMaterialDifficulty.EASY]: '简单',
+  [WritingMaterialDifficulty.MEDIUM]: '中等',
+  [WritingMaterialDifficulty.HARD]: '困难',
+};

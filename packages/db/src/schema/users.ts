@@ -12,6 +12,7 @@ import { practiceExercises } from './practice-exercises.js';
 import { schools } from './schools.js';
 import { studentTags } from './student_tags.js';
 import { teachingResources } from './teaching_resources.js';
+import { studentMaterialFavorites, writingMaterials } from './writing-materials.js';
 
 export const users = sqliteTable(
   'users',
@@ -51,4 +52,6 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   deviceTokens: many(deviceTokens),
   notificationLogs: many(notificationLogs),
   challengeSubmissions: many(challengeSubmissions),
+  writingMaterials: many(writingMaterials),
+  materialFavorites: many(studentMaterialFavorites),
 }));

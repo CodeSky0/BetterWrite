@@ -341,7 +341,9 @@ interface ExpoPushMessage {
   data?: Record<string, string>;
 }
 
-async function sendExpoPush(messages: ExpoPushMessage[]): Promise<{ sent: number; failed: number }> {
+async function sendExpoPush(
+  messages: ExpoPushMessage[],
+): Promise<{ sent: number; failed: number }> {
   const expoAccessToken = process.env.EXPO_ACCESS_TOKEN;
   if (!expoAccessToken || messages.length === 0) {
     return { sent: 0, failed: messages.length };
@@ -442,11 +444,7 @@ async function runNotificationScheduler(): Promise<void> {
 
     for (const task of dueSoonTasks) {
       if (!task.class) continue;
-      // 找到该班级所有学生
-      const students = await db.query.users.findMany({
-        where: and(eq(users.role, 'student'), eq(users.schoolId, task.class.schoolId)),
-      });
-      // 更精确：通过 class_enrollments 找学生
+      // 通过 class_enrollments 精确查找该班级学生
       const { classEnrollments } = await import('@betterwrite/db');
       const enrollments = await db.query.classEnrollments.findMany({
         where: and(
@@ -613,10 +611,20 @@ async function main(): Promise<void> {
     workerLogger.info({ port: env.WORKER_HEALTH_PORT }, 'Worker health server listening');
   });
 
+  // 启动通知调度器并定时运行（每 10 分钟检查一次）
+  await runNotificationScheduler();
+  const schedulerInterval = setInterval(
+    () => {
+      void runNotificationScheduler();
+    },
+    10 * 60 * 1000,
+  );
+
   let isShuttingDown = false;
   const shutdown = async (signal: string) => {
     if (isShuttingDown) return;
     isShuttingDown = true;
+    clearInterval(schedulerInterval);
     workerLogger.info({ signal }, 'Shutting down worker');
     await worker.close();
     await aiRouterManager.stop();

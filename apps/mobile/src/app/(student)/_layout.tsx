@@ -33,6 +33,13 @@ export default function StudentLayout() {
         }}
       />
       <Tabs.Screen
+        name="materials"
+        options={{
+          title: '素材',
+          tabBarIcon: ({ color, size }) => <Ionicons name="library" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
         name="assistant"
         options={{
           title: '助手',

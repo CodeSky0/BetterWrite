@@ -101,6 +101,10 @@ export const essayTasksRelations = relations(essayTasks, ({ one }) => ({
     fields: [essayTasks.createdBy],
     references: [users.id],
   }),
+  class: one(classes, {
+    fields: [essayTasks.classId],
+    references: [classes.id],
+  }),
 }));
 
 export const essaysRelations = relations(essays, ({ one, many }) => ({

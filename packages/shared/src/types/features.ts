@@ -4,7 +4,12 @@
  */
 
 import type { EducationStageValue, PracticeDifficultyValue } from '../constants/essay.js';
-import type { DailyChallengeTypeValue, NotificationTypeValue } from '../constants/features.js';
+import type {
+  DailyChallengeTypeValue,
+  NotificationTypeValue,
+  WritingMaterialDifficultyValue,
+  WritingMaterialTypeValue,
+} from '../constants/features.js';
 import type { MicroExerciseTypeValue } from '../constants/features.js';
 
 // ========== 功能1: 作文版本管理 ==========
@@ -379,4 +384,32 @@ export interface ChallengeStreak {
   currentStreak: number;
   longestStreak: number;
   lastSubmittedDate: string | null;
+}
+
+// ========== 功能11: 写作素材库 ==========
+
+export interface WritingMaterial {
+  id: string;
+  type: WritingMaterialTypeValue;
+  title: string;
+  content: string;
+  topicType: string | null;
+  stage: EducationStageValue;
+  difficulty: WritingMaterialDifficultyValue;
+  tags: string[];
+  source: string | null;
+  usageCount: number;
+  isPublic: boolean;
+  createdBy: string;
+  schoolId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  isFavorited?: boolean;
+}
+
+export interface StudentMaterialFavorite {
+  id: string;
+  studentId: string;
+  materialId: string;
+  createdAt: string;
 }
