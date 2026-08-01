@@ -17,6 +17,7 @@ import type {
   ErrorBookGroup,
   ErrorBookItem,
   EssayDraft,
+  EssayPeerReviewConfig,
   EssayVersion,
   ExamForecast,
   ExamHistoryItem,
@@ -26,6 +27,10 @@ import type {
   MicroSkill,
   ModelRouteItem,
   NotificationLog,
+  PeerReview,
+  PeerReviewSummary,
+  PeerReviewWeights,
+  PeerReviewWithEssay,
   PracticeExercise,
   PublicQuestionWithStats,
   QuestionBankItem,
@@ -901,5 +906,79 @@ export const fetcher = {
   unfavoriteWritingMaterial: (id: string) =>
     request<ApiResponse<{ isFavorited: boolean }>>(`/api/writing-materials/${id}/favorite`, {
       method: 'DELETE',
+    }),
+
+  // ========== Feature 12: Peer Review ==========
+  getPeerReviewConfig: (taskId: string) =>
+    request<ApiResponse<EssayPeerReviewConfig | null>>(`/api/peer-reviews/configs/${taskId}`),
+
+  createPeerReviewConfig: (data: {
+    taskId: string;
+    enabled?: boolean;
+    reviewsPerEssay?: number;
+    reviewsPerStudent?: number;
+    anonymous?: boolean;
+    weights?: PeerReviewWeights;
+    dueDate?: string;
+    guidingQuestions?: Array<{ id: string; text: string }>;
+  }) =>
+    request<ApiResponse<EssayPeerReviewConfig>>('/api/peer-reviews/configs', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  assignPeerReviews: (taskId: string) =>
+    request<ApiResponse<{ assignedCount: number; essayCount: number }>>(
+      `/api/peer-reviews/tasks/${taskId}/assign`,
+      { method: 'POST' },
+    ),
+
+  getPeerReviewTaskSummary: (taskId: string) =>
+    request<
+      ApiResponse<{ total: number; completed: number; pending: number; completionRate: number }>
+    >(`/api/peer-reviews/tasks/${taskId}/summary`),
+
+  getPeerReviewsForEssay: (essayId: string) =>
+    request<
+      ApiResponse<{
+        essay: {
+          id: string;
+          title: string | null;
+          content: string;
+          wordCount: number;
+          studentId: string;
+          taskId: string | null;
+          taskTitle: string | null;
+        };
+        reviews: PeerReview[];
+        summary: PeerReviewSummary;
+      }>
+    >(`/api/peer-reviews/essays/${essayId}`),
+
+  getPendingPeerReviews: () =>
+    request<ApiResponse<PeerReviewWithEssay[]>>('/api/peer-reviews/pending'),
+
+  getMyEssayPeerReviews: (essayId: string) =>
+    request<
+      ApiResponse<{
+        reviews: PeerReview[];
+        summary: PeerReviewSummary;
+      }>
+    >(`/api/peer-reviews/my-essay/${essayId}`),
+
+  submitPeerReview: (
+    id: string,
+    data: {
+      contentScore: number;
+      languageScore: number;
+      structureScore: number;
+      handwritingScore: number;
+      comment?: string;
+      answers?: Array<{ questionId: string; answer: string }>;
+    },
+  ) =>
+    request<ApiResponse<PeerReview>>(`/api/peer-reviews/${id}/submit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
     }),
 };

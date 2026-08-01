@@ -8,6 +8,7 @@ import { deviceTokens } from './device-tokens.js';
 import { errorBooks } from './error-books.js';
 import { essayDrafts } from './essay-drafts.js';
 import { notificationLogs } from './notification-logs.js';
+import { peerReviews } from './peer-reviews.js';
 import { practiceExercises } from './practice-exercises.js';
 import { schools } from './schools.js';
 import { studentTags } from './student_tags.js';
@@ -54,4 +55,5 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   challengeSubmissions: many(challengeSubmissions),
   writingMaterials: many(writingMaterials),
   materialFavorites: many(studentMaterialFavorites),
+  peerReviews: many(peerReviews),
 }));

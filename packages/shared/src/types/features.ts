@@ -7,6 +7,8 @@ import type { EducationStageValue, PracticeDifficultyValue } from '../constants/
 import type {
   DailyChallengeTypeValue,
   NotificationTypeValue,
+  PeerReviewDimensionValue,
+  PeerReviewStatusValue,
   WritingMaterialDifficultyValue,
   WritingMaterialTypeValue,
 } from '../constants/features.js';
@@ -412,4 +414,71 @@ export interface StudentMaterialFavorite {
   studentId: string;
   materialId: string;
   createdAt: string;
+}
+
+// ========== 功能12: 同伴互评 ==========
+
+export interface PeerReviewWeights {
+  ai: number;
+  teacher: number;
+  peer: number;
+}
+
+export interface PeerReviewAnswer {
+  questionId: string;
+  answer: string;
+}
+
+export interface PeerReview {
+  id: string;
+  essayId: string;
+  reviewerId: string;
+  reviewerName: string | null;
+  anonymous: boolean;
+  contentScore: number | null;
+  languageScore: number | null;
+  structureScore: number | null;
+  handwritingScore: number | null;
+  totalScore: number | null;
+  comment: string | null;
+  answers: PeerReviewAnswer[];
+  status: PeerReviewStatusValue;
+  submittedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PeerReviewWithEssay extends PeerReview {
+  essay: {
+    id: string;
+    title: string | null;
+    content: string;
+    wordCount: number;
+    studentId: string;
+    studentName: string | null;
+    taskId: string | null;
+    taskTitle: string | null;
+  };
+}
+
+export interface EssayPeerReviewConfig {
+  id: string;
+  taskId: string;
+  createdBy: string;
+  enabled: boolean;
+  reviewsPerEssay: number;
+  reviewsPerStudent: number;
+  anonymous: boolean;
+  weights: PeerReviewWeights;
+  dueDate: string | null;
+  guidingQuestions: Array<{ id: string; text: string }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PeerReviewSummary {
+  essayId: string;
+  reviewCount: number;
+  averageScore: number | null;
+  dimensionAverages: Record<PeerReviewDimensionValue, number | null>;
 }

@@ -201,3 +201,45 @@ export const WritingMaterialDifficultyLabels: Record<WritingMaterialDifficultyVa
   [WritingMaterialDifficulty.MEDIUM]: '中等',
   [WritingMaterialDifficulty.HARD]: '困难',
 };
+
+// 同伴互评状态
+export const PeerReviewStatus = {
+  PENDING: 'pending',
+  COMPLETED: 'completed',
+  SKIPPED: 'skipped',
+} as const;
+
+export type PeerReviewStatusValue = (typeof PeerReviewStatus)[keyof typeof PeerReviewStatus];
+
+export const PeerReviewStatusLabels: Record<PeerReviewStatusValue, string> = {
+  [PeerReviewStatus.PENDING]: '待评',
+  [PeerReviewStatus.COMPLETED]: '已完成',
+  [PeerReviewStatus.SKIPPED]: '已跳过',
+};
+
+// 互评得分维度
+export const PeerReviewDimension = {
+  CONTENT: 'content',
+  LANGUAGE: 'language',
+  STRUCTURE: 'structure',
+  HANDWRITING: 'handwriting',
+} as const;
+
+export type PeerReviewDimensionValue =
+  (typeof PeerReviewDimension)[keyof typeof PeerReviewDimension];
+
+export const PeerReviewDimensionLabels: Record<PeerReviewDimensionValue, string> = {
+  [PeerReviewDimension.CONTENT]: '内容',
+  [PeerReviewDimension.LANGUAGE]: '语言',
+  [PeerReviewDimension.STRUCTURE]: '结构',
+  [PeerReviewDimension.HANDWRITING]: '卷面',
+};
+
+// 默认互评引导性问题
+export const DefaultPeerReviewQuestions: Array<{ id: string; text: string }> = [
+  { id: 'main_idea', text: '文章主旨是否明确？' },
+  { id: 'examples', text: '论据/例子是否充分支持观点？' },
+  { id: 'logic', text: '段落之间衔接是否自然？' },
+  { id: 'vocabulary', text: '有哪些值得学习的表达？' },
+  { id: 'suggestion', text: '给作者一个具体的改进建议。' },
+];

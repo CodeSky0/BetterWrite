@@ -27,3 +27,4 @@ export * from './exam-history.js';
 export * from './notification-logs.js';
 export * from './daily-challenges.js';
 export * from './writing-materials.js';
+export * from './peer-reviews.js';

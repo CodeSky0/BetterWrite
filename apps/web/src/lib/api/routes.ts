@@ -24,6 +24,7 @@ import {
   deviceTokens,
   errorBooks,
   essayDrafts,
+  essayPeerReviewConfigs,
   essayTasks,
   essayVersions,
   essays,
@@ -35,6 +36,7 @@ import {
   microSkills,
   modelRoutes,
   notificationLogs,
+  peerReviews,
   practiceExercises,
   questionBank,
   resourceComments,
@@ -53,7 +55,9 @@ import {
 import {
   AchievementTier,
   AiAssistantMode,
+  DefaultPeerReviewQuestions,
   ExerciseType,
+  PeerReviewStatus,
   StudentTag,
   TeachingResourceType,
   UserRole,
@@ -82,6 +86,8 @@ import type {
   ErrorBookGroup,
   EssayDraft,
   ModelRouteItem,
+  PeerReviewStatusValue,
+  PeerReviewWeights,
   PracticeExercise,
   QuestionBankItem,
   SchoolStats,
@@ -7055,6 +7061,53 @@ const materialFiltersSchema = z.object({
   pageSize: z.coerce.number().min(1).max(100).default(20),
 });
 
+// ========== Feature 12: Peer Review ==========
+
+const peerReviewConfigSchema = z.object({
+  taskId: z.string().min(1),
+  enabled: z.boolean().default(true),
+  reviewsPerEssay: z.coerce.number().int().min(1).max(10).default(2),
+  reviewsPerStudent: z.coerce.number().int().min(1).max(20).default(2),
+  anonymous: z.boolean().default(true),
+  weights: z
+    .object({
+      ai: z.coerce.number().min(0).max(1).default(0.6),
+      teacher: z.coerce.number().min(0).max(1).default(0.3),
+      peer: z.coerce.number().min(0).max(1).default(0.1),
+    })
+    .default({ ai: 0.6, teacher: 0.3, peer: 0.1 })
+    .refine((w) => Math.abs(w.ai + w.teacher + w.peer - 1) < 0.001, {
+      message: '权重之和必须等于 1',
+    }),
+  dueDate: z.string().datetime().optional(),
+  guidingQuestions: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        text: z.string().min(1).max(500),
+      }),
+    )
+    .max(10)
+    .default(DefaultPeerReviewQuestions),
+});
+
+const peerReviewSubmitSchema = z.object({
+  contentScore: z.coerce.number().int().min(0).max(100),
+  languageScore: z.coerce.number().int().min(0).max(100),
+  structureScore: z.coerce.number().int().min(0).max(100),
+  handwritingScore: z.coerce.number().int().min(0).max(100),
+  comment: z.string().max(2000).optional(),
+  answers: z
+    .array(
+      z.object({
+        questionId: z.string().min(1),
+        answer: z.string().max(1000),
+      }),
+    )
+    .max(20)
+    .default([]),
+});
+
 function parseTags(tags: string | null): string[] {
   if (!tags) return [];
   try {
@@ -7380,6 +7433,572 @@ app.delete(
     return c.json({ success: true, data: { isFavorited: false } });
   },
 );
+
+// ========== Feature 12: Peer Review ==========
+
+function parsePeerReviewWeights(weights: string | null): PeerReviewWeights {
+  if (!weights) return { ai: 0.6, teacher: 0.3, peer: 0.1 };
+  try {
+    const parsed = JSON.parse(weights) as Partial<PeerReviewWeights>;
+    return {
+      ai: typeof parsed.ai === 'number' ? parsed.ai : 0.6,
+      teacher: typeof parsed.teacher === 'number' ? parsed.teacher : 0.3,
+      peer: typeof parsed.peer === 'number' ? parsed.peer : 0.1,
+    };
+  } catch {
+    return { ai: 0.6, teacher: 0.3, peer: 0.1 };
+  }
+}
+
+function parseGuidingQuestions(raw: string | null): Array<{ id: string; text: string }> {
+  if (!raw) return DefaultPeerReviewQuestions;
+  try {
+    const parsed = JSON.parse(raw) as unknown[];
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((q): q is { id: string; text: string } => {
+          return (
+            typeof q === 'object' &&
+            q !== null &&
+            'id' in q &&
+            'text' in q &&
+            typeof (q as { id: unknown }).id === 'string' &&
+            typeof (q as { text: unknown }).text === 'string'
+          );
+        })
+        .slice(0, 10);
+    }
+  } catch {
+    // ignore
+  }
+  return DefaultPeerReviewQuestions;
+}
+
+function toPeerReviewResponse(
+  row: typeof peerReviews.$inferSelect,
+  reviewerName: string | null = null,
+) {
+  return {
+    id: row.id,
+    essayId: row.essayId,
+    reviewerId: row.reviewerId,
+    reviewerName,
+    anonymous: false,
+    contentScore: row.contentScore,
+    languageScore: row.languageScore,
+    structureScore: row.structureScore,
+    handwritingScore: row.handwritingScore,
+    totalScore: row.totalScore,
+    comment: row.comment,
+    answers: parseGuidingQuestions(row.answers),
+    status: row.status as PeerReviewStatusValue,
+    submittedAt: row.submittedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toPeerReviewConfigResponse(row: typeof essayPeerReviewConfigs.$inferSelect) {
+  return {
+    id: row.id,
+    taskId: row.taskId,
+    createdBy: row.createdBy,
+    enabled: Boolean(row.enabled),
+    reviewsPerEssay: row.reviewsPerEssay,
+    reviewsPerStudent: row.reviewsPerStudent,
+    anonymous: Boolean(row.anonymous),
+    weights: parsePeerReviewWeights(row.weights),
+    dueDate: row.dueDate,
+    guidingQuestions: parseGuidingQuestions(row.guidingQuestions),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function calculateTotalScore(scores: {
+  contentScore: number | null;
+  languageScore: number | null;
+  structureScore: number | null;
+  handwritingScore: number | null;
+}): number | null {
+  const values = [
+    scores.contentScore,
+    scores.languageScore,
+    scores.structureScore,
+    scores.handwritingScore,
+  ].filter((s): s is number => s !== null && s !== undefined);
+  if (values.length === 0) return null;
+  return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+}
+
+// 教师：查询/配置某个任务的互评规则
+app.get(
+  '/peer-reviews/configs/:taskId',
+  rateLimit(30, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN),
+  async (c) => {
+    const user = c.get('user');
+    const taskId = c.req.param('taskId');
+    routesLogger.info({ userId: user.id, taskId }, '[API GET /peer-reviews/configs/:taskId]');
+
+    const task = await db.query.essayTasks.findFirst({
+      where: eq(essayTasks.id, taskId),
+      with: { class: true },
+    });
+    if (!task) {
+      return c.json({ success: false, error: '任务不存在' }, 404);
+    }
+    if (!(await assertClassAccess(user, task.classId))) {
+      return c.json({ success: false, error: '无权限访问该班级任务' }, 403);
+    }
+
+    const config = await db.query.essayPeerReviewConfigs.findFirst({
+      where: eq(essayPeerReviewConfigs.taskId, taskId),
+    });
+
+    return c.json({
+      success: true,
+      data: config ? toPeerReviewConfigResponse(config) : null,
+    });
+  },
+);
+
+// 教师：创建或更新互评配置
+app.post(
+  '/peer-reviews/configs',
+  rateLimit(10, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN),
+  zValidator('json', peerReviewConfigSchema),
+  async (c) => {
+    const user = c.get('user');
+    const body = c.req.valid('json');
+    routesLogger.info({ userId: user.id, taskId: body.taskId }, '[API POST /peer-reviews/configs]');
+
+    const task = await db.query.essayTasks.findFirst({
+      where: eq(essayTasks.id, body.taskId),
+    });
+    if (!task) {
+      return c.json({ success: false, error: '任务不存在' }, 404);
+    }
+    if (!(await assertClassAccess(user, task.classId))) {
+      return c.json({ success: false, error: '无权限配置该班级任务' }, 403);
+    }
+
+    const now = new Date().toISOString();
+    const existing = await db.query.essayPeerReviewConfigs.findFirst({
+      where: eq(essayPeerReviewConfigs.taskId, body.taskId),
+    });
+
+    if (existing) {
+      await db
+        .update(essayPeerReviewConfigs)
+        .set({
+          enabled: body.enabled,
+          reviewsPerEssay: body.reviewsPerEssay,
+          reviewsPerStudent: body.reviewsPerStudent,
+          anonymous: body.anonymous,
+          weights: JSON.stringify(body.weights),
+          dueDate: body.dueDate ?? null,
+          guidingQuestions: JSON.stringify(body.guidingQuestions),
+          updatedAt: now,
+        })
+        .where(eq(essayPeerReviewConfigs.id, existing.id));
+      const updated = await db.query.essayPeerReviewConfigs.findFirst({
+        where: eq(essayPeerReviewConfigs.id, existing.id),
+      });
+      return c.json({
+        success: true,
+        data: updated ? toPeerReviewConfigResponse(updated) : null,
+      });
+    }
+
+    const id = randomUUID();
+    await db.insert(essayPeerReviewConfigs).values({
+      id,
+      taskId: body.taskId,
+      createdBy: user.id,
+      enabled: body.enabled,
+      reviewsPerEssay: body.reviewsPerEssay,
+      reviewsPerStudent: body.reviewsPerStudent,
+      anonymous: body.anonymous,
+      weights: JSON.stringify(body.weights),
+      dueDate: body.dueDate ?? null,
+      guidingQuestions: JSON.stringify(body.guidingQuestions),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const created = await db.query.essayPeerReviewConfigs.findFirst({
+      where: eq(essayPeerReviewConfigs.id, id),
+    });
+    return c.json(
+      { success: true, data: created ? toPeerReviewConfigResponse(created) : null },
+      201,
+    );
+  },
+);
+
+// 教师：触发互评分配
+app.post(
+  '/peer-reviews/tasks/:taskId/assign',
+  rateLimit(5, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN),
+  async (c) => {
+    const user = c.get('user');
+    const taskId = c.req.param('taskId');
+    routesLogger.info({ userId: user.id, taskId }, '[API POST /peer-reviews/tasks/:taskId/assign]');
+
+    const task = await db.query.essayTasks.findFirst({
+      where: eq(essayTasks.id, taskId),
+    });
+    if (!task) {
+      return c.json({ success: false, error: '任务不存在' }, 404);
+    }
+    if (!(await assertClassAccess(user, task.classId))) {
+      return c.json({ success: false, error: '无权限操作该班级任务' }, 403);
+    }
+
+    const config = await db.query.essayPeerReviewConfigs.findFirst({
+      where: eq(essayPeerReviewConfigs.taskId, taskId),
+    });
+    if (!config || !config.enabled) {
+      return c.json({ success: false, error: '该任务未启用同伴互评' }, 400);
+    }
+
+    // 获取该任务下所有已提交作文
+    const essayList = await db.query.essays.findMany({
+      where: and(eq(essays.taskId, taskId), eq(essays.status, 'submitted')),
+      columns: { id: true, studentId: true },
+    });
+    if (essayList.length < 2) {
+      return c.json({ success: false, error: '提交作文数量不足，无法进行互评' }, 400);
+    }
+
+    const reviewsPerEssay = config.reviewsPerEssay;
+    const reviewsPerStudent = config.reviewsPerStudent;
+    const now = new Date().toISOString();
+
+    // 简单分配算法：每个学生评接下来的 N 篇作文（跳过自己的），循环覆盖
+    // 优先保证 reviewsPerEssay，受限于 reviewsPerStudent
+    const assignments: Array<{ essayId: string; reviewerId: string }> = [];
+
+    for (let i = 0; i < essayList.length; i++) {
+      const targetEssay = essayList[i];
+      let assigned = 0;
+      for (let offset = 1; offset < essayList.length && assigned < reviewsPerEssay; offset++) {
+        const reviewerEssay = essayList[(i + offset) % essayList.length];
+        if (reviewerEssay.studentId === targetEssay.studentId) continue;
+
+        const reviewerCount = assignments.filter(
+          (a) => a.reviewerId === reviewerEssay.studentId,
+        ).length;
+        if (reviewerCount >= reviewsPerStudent) continue;
+
+        const alreadyExists = assignments.some(
+          (a) => a.essayId === targetEssay.id && a.reviewerId === reviewerEssay.studentId,
+        );
+        if (alreadyExists) continue;
+
+        assignments.push({ essayId: targetEssay.id, reviewerId: reviewerEssay.studentId });
+        assigned++;
+      }
+    }
+
+    // 批量写入，忽略冲突
+    if (assignments.length > 0) {
+      await db
+        .insert(peerReviews)
+        .values(
+          assignments.map((a) => ({
+            id: randomUUID(),
+            essayId: a.essayId,
+            reviewerId: a.reviewerId,
+            status: PeerReviewStatus.PENDING as string,
+            answers: '[]',
+            createdAt: now,
+            updatedAt: now,
+          })),
+        )
+        .onConflictDoNothing({
+          target: [peerReviews.essayId, peerReviews.reviewerId],
+        });
+    }
+
+    return c.json({
+      success: true,
+      data: { assignedCount: assignments.length, essayCount: essayList.length },
+    });
+  },
+);
+
+// 教师：查看某篇作文收到的互评汇总
+app.get(
+  '/peer-reviews/essays/:essayId',
+  rateLimit(30, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN),
+  async (c) => {
+    const user = c.get('user');
+    const essayId = c.req.param('essayId');
+    routesLogger.info({ userId: user.id, essayId }, '[API GET /peer-reviews/essays/:essayId]');
+
+    const essay = await db.query.essays.findFirst({
+      where: eq(essays.id, essayId),
+      with: { task: { with: { class: true } } },
+    });
+    if (!essay || !essay.task) {
+      return c.json({ success: false, error: '作文不存在' }, 404);
+    }
+    if (!(await assertClassAccess(user, essay.task.classId))) {
+      return c.json({ success: false, error: '无权限访问该班级作文' }, 403);
+    }
+
+    const reviewList = await db.query.peerReviews.findMany({
+      where: eq(peerReviews.essayId, essayId),
+      with: { reviewer: { columns: { id: true, name: true } } },
+    });
+
+    const config = essay.taskId
+      ? await db.query.essayPeerReviewConfigs.findFirst({
+          where: eq(essayPeerReviewConfigs.taskId, essay.taskId),
+        })
+      : null;
+    const anonymous = config?.anonymous ?? true;
+
+    const completed = reviewList.filter((r) => r.status === PeerReviewStatus.COMPLETED);
+    const dimensionAverages = {
+      content: average(completed.map((r) => r.contentScore)),
+      language: average(completed.map((r) => r.languageScore)),
+      structure: average(completed.map((r) => r.structureScore)),
+      handwriting: average(completed.map((r) => r.handwritingScore)),
+    };
+
+    return c.json({
+      success: true,
+      data: {
+        essay: {
+          id: essay.id,
+          title: essay.title,
+          content: essay.content,
+          wordCount: essay.wordCount,
+          studentId: essay.studentId,
+          taskId: essay.taskId,
+          taskTitle: essay.task.title,
+        },
+        reviews: reviewList.map((r) =>
+          toPeerReviewResponse(r, !anonymous && r.reviewer ? r.reviewer.name : null),
+        ),
+        summary: {
+          essayId,
+          reviewCount: completed.length,
+          averageScore: average(completed.map((r) => r.totalScore)),
+          dimensionAverages,
+        },
+      },
+    });
+  },
+);
+
+// 教师：查询任务互评统计
+app.get(
+  '/peer-reviews/tasks/:taskId/summary',
+  rateLimit(30, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN),
+  async (c) => {
+    const user = c.get('user');
+    const taskId = c.req.param('taskId');
+    routesLogger.info({ userId: user.id, taskId }, '[API GET /peer-reviews/tasks/:taskId/summary]');
+
+    const task = await db.query.essayTasks.findFirst({
+      where: eq(essayTasks.id, taskId),
+    });
+    if (!task) {
+      return c.json({ success: false, error: '任务不存在' }, 404);
+    }
+    if (!(await assertClassAccess(user, task.classId))) {
+      return c.json({ success: false, error: '无权限访问该班级任务' }, 403);
+    }
+
+    const reviews = await db.query.peerReviews.findMany({
+      where: eq(peerReviews.essayId, taskId),
+    });
+
+    const total = reviews.length;
+    const completed = reviews.filter((r) => r.status === PeerReviewStatus.COMPLETED).length;
+
+    return c.json({
+      success: true,
+      data: {
+        total,
+        completed,
+        pending: total - completed,
+        completionRate: total > 0 ? Math.round((completed / total) * 100) : 0,
+      },
+    });
+  },
+);
+
+// 学生：查看自己的待评任务列表
+app.get(
+  '/peer-reviews/pending',
+  rateLimit(30, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  async (c) => {
+    const user = c.get('user');
+    routesLogger.info({ userId: user.id }, '[API GET /peer-reviews/pending]');
+
+    const pending = await db.query.peerReviews.findMany({
+      where: and(
+        eq(peerReviews.reviewerId, user.id),
+        eq(peerReviews.status, PeerReviewStatus.PENDING),
+      ),
+      with: {
+        essay: {
+          with: { task: { columns: { id: true, title: true } } },
+          columns: { id: true, title: true, content: true, wordCount: true, studentId: true },
+        },
+      },
+    });
+
+    return c.json({
+      success: true,
+      data: pending.map((r) => ({
+        ...toPeerReviewResponse(r),
+        essay: {
+          id: r.essay.id,
+          title: r.essay.title,
+          content: r.essay.content,
+          wordCount: r.essay.wordCount,
+          studentId: r.essay.studentId,
+          taskId: r.essay.task?.id ?? null,
+          taskTitle: r.essay.task?.title ?? null,
+        },
+      })),
+    });
+  },
+);
+
+// 学生：查询我某篇作文收到的互评
+app.get(
+  '/peer-reviews/my-essay/:essayId',
+  rateLimit(30, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  async (c) => {
+    const user = c.get('user');
+    const essayId = c.req.param('essayId');
+    routesLogger.info({ userId: user.id, essayId }, '[API GET /peer-reviews/my-essay/:essayId]');
+
+    const essay = await db.query.essays.findFirst({
+      where: eq(essays.id, essayId),
+      with: { task: { columns: { id: true, title: true } } },
+    });
+    if (!essay || essay.studentId !== user.id) {
+      return c.json({ success: false, error: '无权限查看该作文互评' }, 403);
+    }
+
+    const reviewList = await db.query.peerReviews.findMany({
+      where: and(
+        eq(peerReviews.essayId, essayId),
+        eq(peerReviews.status, PeerReviewStatus.COMPLETED),
+      ),
+    });
+
+    return c.json({
+      success: true,
+      data: {
+        reviews: reviewList.map((r) => toPeerReviewResponse(r, null)),
+        summary: {
+          essayId,
+          reviewCount: reviewList.length,
+          averageScore: average(reviewList.map((r) => r.totalScore)),
+          dimensionAverages: {
+            content: average(reviewList.map((r) => r.contentScore)),
+            language: average(reviewList.map((r) => r.languageScore)),
+            structure: average(reviewList.map((r) => r.structureScore)),
+            handwriting: average(reviewList.map((r) => r.handwritingScore)),
+          },
+        },
+      },
+    });
+  },
+);
+
+// 学生：提交互评
+app.post(
+  '/peer-reviews/:id/submit',
+  rateLimit(10, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  zValidator('json', peerReviewSubmitSchema),
+  async (c) => {
+    const user = c.get('user');
+    const id = c.req.param('id');
+    const body = c.req.valid('json');
+    routesLogger.info({ userId: user.id, reviewId: id }, '[API POST /peer-reviews/:id/submit]');
+
+    const review = await db.query.peerReviews.findFirst({
+      where: eq(peerReviews.id, id),
+      with: { essay: { with: { task: true } } },
+    });
+    if (!review) {
+      return c.json({ success: false, error: '互评任务不存在' }, 404);
+    }
+    if (review.reviewerId !== user.id) {
+      return c.json({ success: false, error: '无权限提交该互评' }, 403);
+    }
+    if (review.status === PeerReviewStatus.COMPLETED) {
+      return c.json({ success: false, error: '该互评已提交' }, 400);
+    }
+
+    const now = new Date().toISOString();
+    const totalScore = calculateTotalScore({
+      contentScore: body.contentScore,
+      languageScore: body.languageScore,
+      structureScore: body.structureScore,
+      handwritingScore: body.handwritingScore,
+    });
+
+    await db
+      .update(peerReviews)
+      .set({
+        contentScore: body.contentScore,
+        languageScore: body.languageScore,
+        structureScore: body.structureScore,
+        handwritingScore: body.handwritingScore,
+        totalScore,
+        comment: body.comment ?? null,
+        answers: JSON.stringify(body.answers),
+        status: PeerReviewStatus.COMPLETED,
+        submittedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(peerReviews.id, id));
+
+    // 如果任务配置了权重且所有互评已完成，可重新计算作文总分（异步或同步）
+    // 这里仅更新互评记录，最终得分在教师复核时统一计算
+
+    const updated = await db.query.peerReviews.findFirst({
+      where: eq(peerReviews.id, id),
+    });
+
+    return c.json({
+      success: true,
+      data: updated ? toPeerReviewResponse(updated) : null,
+    });
+  },
+);
+
+function average(values: (number | null)[]): number | null {
+  const nums = values.filter((v): v is number => v !== null && v !== undefined);
+  if (nums.length === 0) return null;
+  return Math.round(nums.reduce((a, b) => a + b, 0) / nums.length);
+}
 
 export type AppType = typeof app;
 

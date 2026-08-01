@@ -117,6 +117,12 @@ const navItems: NavItem[] = [
     roles: [UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN],
   },
   {
+    href: '/teacher/peer-review',
+    label: '同伴互评',
+    icon: <Users className="w-4 h-4" />,
+    roles: [UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN],
+  },
+  {
     href: '/student/dashboard',
     label: '学习首页',
     icon: <LayoutDashboard className="w-4 h-4" />,
@@ -162,6 +168,12 @@ const navItems: NavItem[] = [
     href: '/student/materials',
     label: '写作素材',
     icon: <Library className="w-4 h-4" />,
+    roles: [UserRole.STUDENT],
+  },
+  {
+    href: '/student/peer-review',
+    label: '同伴互评',
+    icon: <Users className="w-4 h-4" />,
     roles: [UserRole.STUDENT],
   },
   {
