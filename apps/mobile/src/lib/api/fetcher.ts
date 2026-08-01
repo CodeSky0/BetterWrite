@@ -3,9 +3,12 @@ import type {
   AiAssistantResult,
   AiConversation,
   AuthUserResponse,
+  ChallengeStreak,
+  ChallengeSubmission,
   ClassAnalytics,
   Correction,
   CorrectionDetail,
+  DailyChallenge,
   DailyQuote,
   ErrorBookGroup,
   ErrorBookItem,
@@ -401,4 +404,31 @@ export const fetcher = {
     }),
   deleteDraft: (taskId: string) =>
     request<ApiResponse<null>>(`/api/student/drafts/${taskId}`, { method: 'DELETE' }),
+
+  // ========== Feature 10: Daily Writing Challenge ==========
+  getDailyChallengeToday: () =>
+    request<
+      ApiResponse<{
+        challenge: DailyChallenge;
+        submission: ChallengeSubmission | null;
+        streak: number;
+      }>
+    >('/api/daily-challenges/today'),
+  submitDailyChallenge: (challengeId: string, data: { content: string; durationMs?: number }) =>
+    request<
+      ApiResponse<{
+        submissionId: string;
+        score: number;
+        scoreTier: string;
+        feedback: string;
+        streakDays: number;
+      }>
+    >(`/api/daily-challenges/${challengeId}/submit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getDailyChallengeStreak: () =>
+    request<ApiResponse<ChallengeStreak & { totalSubmissions: number }>>(
+      '/api/daily-challenges/streak',
+    ),
 };
