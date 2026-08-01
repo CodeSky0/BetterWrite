@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ZodSchema } from 'zod';
-import { BaseAIProvider } from '../providers/base.js';
+import { BaseAIProvider, type LanguageModelResolver } from '../providers/base.js';
 import { AIProviderRouter } from '../router.js';
 
 class MockProvider extends BaseAIProvider {
@@ -16,8 +16,8 @@ class MockProvider extends BaseAIProvider {
   }
 
   // Mock client factory - not actually used since we override complete/generateObject
-  protected getClient(): (model: string) => unknown {
-    return () => ({});
+  protected getClient(): LanguageModelResolver {
+    return (() => ({})) as unknown as LanguageModelResolver;
   }
 
   override async complete(prompt: string): Promise<string> {

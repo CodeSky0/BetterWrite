@@ -3820,10 +3820,12 @@ app.get(
       (challengeDates[0] === todayStr || challengeDates[0] === yesterdayStr)
     ) {
       challengeStreak = 1;
+      // challengeDates 按降序排列，challengeDates[i - 1] 比 challengeDates[i] 更新，
+      // 因此 diffDays 为正数，连续两天提交时 diffDays === 1。
       for (let i = 1; i < challengeDates.length; i++) {
-        const prevDate = new Date(challengeDates[i - 1]);
-        const currDate = new Date(challengeDates[i]);
-        const diffDays = (prevDate.getTime() - currDate.getTime()) / 86400000;
+        const newerDate = new Date(challengeDates[i - 1]);
+        const olderDate = new Date(challengeDates[i]);
+        const diffDays = (newerDate.getTime() - olderDate.getTime()) / 86400000;
         if (diffDays === 1) {
           challengeStreak++;
         } else {

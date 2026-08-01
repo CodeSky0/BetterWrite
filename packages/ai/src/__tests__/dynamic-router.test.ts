@@ -5,7 +5,7 @@ import {
   DynamicAIProviderRouter,
   createRouterFromConfigs,
 } from '../dynamic-router.js';
-import { BaseAIProvider } from '../providers/base.js';
+import { BaseAIProvider, type LanguageModelResolver } from '../providers/base.js';
 
 class MockProvider extends BaseAIProvider {
   readonly name: string;
@@ -20,8 +20,8 @@ class MockProvider extends BaseAIProvider {
   }
 
   // Mock client factory - not actually used since we override complete/generateObject
-  protected getClient(): (model: string) => unknown {
-    return () => ({});
+  protected getClient(): LanguageModelResolver {
+    return (() => ({})) as unknown as LanguageModelResolver;
   }
 
   override async complete(): Promise<string> {

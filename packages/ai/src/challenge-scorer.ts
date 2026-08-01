@@ -19,8 +19,17 @@ const challengeScoreSchema = z.object({
   suggestions: z.array(z.string()).default([]),
 });
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function wrapStudentInput(text: string): string {
-  return `<student_input>\n${text}\n</student_input>`;
+  return `<student_input>\n${escapeHtml(text)}\n</student_input>`;
 }
 
 const STUDENT_INPUT_NOTE =

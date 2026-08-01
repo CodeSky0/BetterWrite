@@ -1,5 +1,5 @@
 import { createDeepSeek } from '@ai-sdk/deepseek';
-import { BaseAIProvider } from './base.js';
+import { BaseAIProvider, type LanguageModelResolver } from './base.js';
 
 export class DeepSeekProvider extends BaseAIProvider {
   readonly name = 'deepseek';
@@ -12,7 +12,7 @@ export class DeepSeekProvider extends BaseAIProvider {
     this.client = createDeepSeek({ apiKey, baseURL });
   }
 
-  protected getClient() {
-    return this.client;
+  protected getClient(): LanguageModelResolver {
+    return this.client as LanguageModelResolver;
   }
 }
