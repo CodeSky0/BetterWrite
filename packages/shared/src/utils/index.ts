@@ -107,6 +107,8 @@ export function checkAchievements(stats: {
   perfectScores: number;
   consecutiveProgress: number;
   errorFreeEssays: number;
+  challengeStreak?: number;
+  totalChallenges?: number;
 }): string[] {
   const codes: string[] = [];
   if (stats.totalEssays >= 10) codes.push('essay_10');
@@ -118,6 +120,9 @@ export function checkAchievements(stats: {
     codes.push('first_tier_regular');
   }
   if (stats.errorFreeEssays >= 5) codes.push('grammar_master');
+  if ((stats.challengeStreak ?? 0) >= 7) codes.push('challenge_streak_7');
+  if ((stats.challengeStreak ?? 0) >= 30) codes.push('challenge_streak_30');
+  if ((stats.totalChallenges ?? 0) >= 50) codes.push('challenge_master');
   return codes;
 }
 

@@ -2,7 +2,17 @@ import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { type EssayTaskInput, correctEssay } from '@betterwrite/ai';
-import { corrections, db, essays } from '@betterwrite/db';
+import {
+  challengeSubmissions,
+  corrections,
+  dailyChallenges,
+  db,
+  deviceTokens,
+  essayTasks,
+  essays,
+  notificationLogs,
+  users,
+} from '@betterwrite/db';
 import { getScoreTier } from '@betterwrite/shared';
 import { env } from '@betterwrite/shared/env';
 import { logger } from '@betterwrite/shared/logger';
@@ -12,7 +22,7 @@ import {
   aiProviderCircuitBreaker,
 } from '@betterwrite/shared/queue';
 import { Worker } from 'bullmq';
-import { and, eq, inArray, lt } from 'drizzle-orm';
+import { and, eq, gte, inArray, lt, lte } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { aiRouterManager } from './ai-config.js';
 
@@ -319,6 +329,202 @@ function createMockCorrection(
     aiProvider: 'mock',
     aiModel: 'mock',
   };
+}
+
+// ========== Smart Push Notification Scheduler ==========
+
+interface ExpoPushMessage {
+  to: string;
+  title: string;
+  body: string;
+  sound?: 'default';
+  data?: Record<string, string>;
+}
+
+async function sendExpoPush(messages: ExpoPushMessage[]): Promise<{ sent: number; failed: number }> {
+  const expoAccessToken = process.env.EXPO_ACCESS_TOKEN;
+  if (!expoAccessToken || messages.length === 0) {
+    return { sent: 0, failed: messages.length };
+  }
+  try {
+    const res = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${expoAccessToken}`,
+      },
+      body: JSON.stringify(messages),
+    });
+    if (!res.ok) {
+      workerLogger.error({ status: res.status }, 'Expo push request failed');
+      return { sent: 0, failed: messages.length };
+    }
+    // Expo 返回数组，每项有 status；为简化统计，按请求成功计数。
+    return { sent: messages.length, failed: 0 };
+  } catch (err) {
+    workerLogger.error({ err }, 'Expo push request error');
+    return { sent: 0, failed: messages.length };
+  }
+}
+
+async function createNotification(
+  userId: string,
+  type: string,
+  title: string,
+  body: string,
+  referenceId?: string,
+): Promise<string> {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  await db.insert(notificationLogs).values({
+    id,
+    userId,
+    type,
+    title,
+    body,
+    referenceId,
+    channel: 'in_app',
+    status: 'sent',
+    sentAt: now,
+    createdAt: now,
+  });
+  return id;
+}
+
+async function sendNotificationToUser(
+  userId: string,
+  type: string,
+  title: string,
+  body: string,
+  referenceId?: string,
+): Promise<void> {
+  const notificationId = await createNotification(userId, type, title, body, referenceId);
+  const tokens = await db.query.deviceTokens.findMany({
+    where: eq(deviceTokens.userId, userId),
+  });
+  if (tokens.length === 0) return;
+
+  const messages: ExpoPushMessage[] = tokens.map((t) => ({
+    to: t.token,
+    title,
+    body,
+    sound: 'default',
+    data: { type, referenceId: referenceId ?? '', notificationId },
+  }));
+
+  const { sent, failed } = await sendExpoPush(messages);
+  if (failed > 0) {
+    await db
+      .update(notificationLogs)
+      .set({ status: 'failed', errorMessage: `push failed: ${failed}/${messages.length}` })
+      .where(eq(notificationLogs.id, notificationId));
+  }
+  workerLogger.info({ userId, type, sent, failed }, 'Notification sent');
+}
+
+async function runNotificationScheduler(): Promise<void> {
+  const now = new Date();
+  const nowStr = now.toISOString();
+  const windowStart = new Date(now.getTime() + 55 * 60 * 1000).toISOString(); // 55 分钟后
+  const windowEnd = new Date(now.getTime() + 65 * 60 * 1000).toISOString(); // 65 分钟后
+  workerLogger.info({ windowStart, windowEnd }, 'Running notification scheduler');
+
+  try {
+    // 1. 任务截止提醒（24 小时前）
+    const dueSoonTasks = await db.query.essayTasks.findMany({
+      where: and(
+        gte(essayTasks.dueDate, windowStart),
+        lte(essayTasks.dueDate, windowEnd),
+        eq(essayTasks.status, 'published'),
+      ),
+      with: { class: true },
+    });
+
+    for (const task of dueSoonTasks) {
+      if (!task.class) continue;
+      // 找到该班级所有学生
+      const students = await db.query.users.findMany({
+        where: and(eq(users.role, 'student'), eq(users.schoolId, task.class.schoolId)),
+      });
+      // 更精确：通过 class_enrollments 找学生
+      const { classEnrollments } = await import('@betterwrite/db');
+      const enrollments = await db.query.classEnrollments.findMany({
+        where: and(
+          eq(classEnrollments.classId, task.classId),
+          eq(classEnrollments.role, 'student'),
+        ),
+        with: { user: true },
+      });
+      for (const enrollment of enrollments) {
+        const student = enrollment.user;
+        if (!student) continue;
+        // 检查是否已提交
+        const submitted = await db.query.essays.findFirst({
+          where: and(eq(essays.taskId, task.id), eq(essays.studentId, student.id)),
+        });
+        if (submitted) continue;
+        await sendNotificationToUser(
+          student.id,
+          'task_due',
+          '任务即将截止',
+          `「${task.title}」将在 1 小时后截止，请及时完成。`,
+          task.id,
+        );
+      }
+    }
+
+    // 2. 教师待批改提醒（每天一次，提醒有 pending 作文的教师）
+    const pendingEssays = await db.query.essays.findMany({
+      where: eq(essays.status, 'pending'),
+      with: { task: { with: { class: true } } },
+    });
+    const teacherPendingMap = new Map<string, number>();
+    for (const essay of pendingEssays) {
+      const teacherId = essay.task?.class?.teacherId;
+      if (!teacherId) continue;
+      teacherPendingMap.set(teacherId, (teacherPendingMap.get(teacherId) ?? 0) + 1);
+    }
+    for (const [teacherId, count] of teacherPendingMap) {
+      await sendNotificationToUser(
+        teacherId,
+        'teacher_pending',
+        '有待批改作文',
+        `您有 ${count} 篇学生作文待批改，请及时处理。`,
+      );
+    }
+
+    // 3. 每日挑战提醒（每天早上 8 点触发）
+    const hour = now.getHours();
+    if (hour === 8) {
+      const todayStr = nowStr.slice(0, 10);
+      const todayChallenge = await db.query.dailyChallenges.findFirst({
+        where: and(eq(dailyChallenges.challengeDate, todayStr), eq(dailyChallenges.isActive, true)),
+      });
+      if (todayChallenge) {
+        const students = await db.query.users.findMany({
+          where: eq(users.role, 'student'),
+        });
+        for (const student of students) {
+          const submitted = await db.query.challengeSubmissions.findFirst({
+            where: and(
+              eq(challengeSubmissions.challengeId, todayChallenge.id),
+              eq(challengeSubmissions.studentId, student.id),
+            ),
+          });
+          if (submitted) continue;
+          await sendNotificationToUser(
+            student.id,
+            'daily_challenge',
+            '每日写作挑战',
+            `今天的挑战「${todayChallenge.title}」已发布，快来参加吧！`,
+            todayChallenge.id,
+          );
+        }
+      }
+    }
+  } catch (err) {
+    workerLogger.error({ err }, 'Notification scheduler failed');
+  }
 }
 
 async function main(): Promise<void> {

@@ -1,5 +1,6 @@
 'use client';
 
+import { NotificationCenter } from '@/components/layout/notification-center';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { Button } from '@/components/ui/button';
 import type { AuthUser } from '@/lib/auth-store';
@@ -215,7 +216,10 @@ export function DashboardLayout({ children, user: userProp }: DashboardLayoutPro
               <p className="text-copy-14 font-medium text-neutral-10">{user?.name}</p>
               <p className="text-label-12 text-neutral-7">{user ? roleLabels[user.role] : ''}</p>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-1">
+              <NotificationCenter />
+              <ThemeToggle />
+            </div>
           </div>
           <Button variant="secondary" size="sm" className="w-full" onClick={handleLogout}>
             <LogOut className="w-4 h-4 mr-2" />
@@ -231,6 +235,7 @@ export function DashboardLayout({ children, user: userProp }: DashboardLayoutPro
             BetterWrite
           </Link>
           <div className="flex items-center gap-1">
+            <NotificationCenter />
             <ThemeToggle />
             <Button variant="ghost" size="icon" onClick={() => setMobileOpen(!mobileOpen)}>
               {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}

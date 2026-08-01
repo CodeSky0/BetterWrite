@@ -113,3 +113,53 @@ export const TopicTrendDirectionLabels: Record<TopicTrendDirectionValue, string>
   [TopicTrendDirection.STABLE]: '保持稳定',
   [TopicTrendDirection.DECLINING]: '下降趋势',
 };
+
+// 每日挑战类型
+export const DailyChallengeType = {
+  SENTENCE_REWRITE: 'sentence_rewrite',
+  DIALOGUE: 'dialogue',
+  CONTINUATION: 'continuation',
+  TRANSLATION: 'translation',
+  FREE_WRITE: 'free_write',
+} as const;
+
+export type DailyChallengeTypeValue = (typeof DailyChallengeType)[keyof typeof DailyChallengeType];
+
+export const DailyChallengeTypeLabels: Record<DailyChallengeTypeValue, string> = {
+  [DailyChallengeType.SENTENCE_REWRITE]: '句子改写',
+  [DailyChallengeType.DIALOGUE]: '情景对话',
+  [DailyChallengeType.CONTINUATION]: '故事续写',
+  [DailyChallengeType.TRANSLATION]: '翻译练习',
+  [DailyChallengeType.FREE_WRITE]: '自由写作',
+};
+
+// 通知类型
+export const NotificationType = {
+  TASK_DUE: 'task_due',
+  TASK_OVERDUE: 'task_overdue',
+  CORRECTION_READY: 'correction_ready',
+  ERROR_REVIEW: 'error_review',
+  DAILY_CHALLENGE: 'daily_challenge',
+  TEACHER_PENDING: 'teacher_pending',
+} as const;
+
+export type NotificationTypeValue = (typeof NotificationType)[keyof typeof NotificationType];
+
+export const NotificationTypeLabels: Record<NotificationTypeValue, string> = {
+  [NotificationType.TASK_DUE]: '任务即将截止',
+  [NotificationType.TASK_OVERDUE]: '任务已逾期',
+  [NotificationType.CORRECTION_READY]: '批改完成',
+  [NotificationType.ERROR_REVIEW]: '错题复习',
+  [NotificationType.DAILY_CHALLENGE]: '每日挑战',
+  [NotificationType.TEACHER_PENDING]: '待批改提醒',
+};
+
+// 通知渠道
+export const NotificationChannel = {
+  PUSH: 'push',
+  IN_APP: 'in_app',
+  SMS: 'sms',
+} as const;
+
+export type NotificationChannelValue =
+  (typeof NotificationChannel)[keyof typeof NotificationChannel];

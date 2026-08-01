@@ -22,6 +22,7 @@ import type {
   MicroExerciseResult,
   MicroSkill,
   ModelRouteItem,
+  NotificationLog,
   PracticeExercise,
   PublicQuestionWithStats,
   QuestionBankItem,
@@ -777,4 +778,23 @@ export const fetcher = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  // ========== Feature 9: Smart Push Notifications ==========
+  getNotifications: (params?: { offset?: number; limit?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.offset !== undefined) query.set('offset', String(params.offset));
+    if (params?.limit !== undefined) query.set('limit', String(params.limit));
+    const qs = query.toString();
+    return request<
+      ApiResponse<{
+        items: NotificationLog[];
+        total: number;
+        unread: number;
+      }>
+    >(`/api/notifications${qs ? `?${qs}` : ''}`);
+  },
+  markNotificationRead: (id: string) =>
+    request<ApiResponse<null>>(`/api/notifications/${id}/read`, { method: 'POST' }),
+  markAllNotificationsRead: () =>
+    request<ApiResponse<null>>('/api/notifications/read-all', { method: 'POST' }),
 };

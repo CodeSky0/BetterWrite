@@ -6,6 +6,7 @@ import {
   checkGrammar,
   getSynonyms,
   polishEssay,
+  scoreChallenge,
   upgradeSentences,
 } from '@betterwrite/ai';
 import {
@@ -15,8 +16,10 @@ import {
   apiCallLogs,
   apiConfigs,
   apiTokens,
+  challengeSubmissions,
   classEnrollments,
   classes,
+  dailyChallenges,
   db,
   deviceTokens,
   errorBooks,
@@ -31,6 +34,7 @@ import {
   microSkillProgress,
   microSkills,
   modelRoutes,
+  notificationLogs,
   practiceExercises,
   questionBank,
   resourceComments,
@@ -2999,6 +3003,27 @@ const ACHIEVEMENT_CATALOG = [
     description: '5篇作文无语法错误',
     icon: 'shield',
   },
+  {
+    code: 'challenge_streak_7',
+    tier: AchievementTier.BRONZE,
+    title: '挑战坚持者',
+    description: '连续7天完成每日写作挑战',
+    icon: 'flame',
+  },
+  {
+    code: 'challenge_streak_30',
+    tier: AchievementTier.SILVER,
+    title: '挑战达人',
+    description: '连续30天完成每日写作挑战',
+    icon: 'flame',
+  },
+  {
+    code: 'challenge_master',
+    tier: AchievementTier.GOLD,
+    title: '百炼成钢',
+    description: '累计完成50次每日写作挑战',
+    icon: 'trophy',
+  },
 ];
 
 // ========== Student Error Book ==========
@@ -3777,12 +3802,44 @@ app.get(
         if (Array.isArray(errs) && errs.length === 0) errorFreeEssays++;
       } catch {}
     }
+
+    // 计算每日挑战相关成就数据
+    const challengeList = await db.query.challengeSubmissions.findMany({
+      where: eq(challengeSubmissions.studentId, user.id),
+      orderBy: desc(challengeSubmissions.submittedAt),
+    });
+    const totalChallenges = challengeList.length;
+    const challengeDates = Array.from(
+      new Set(challengeList.map((c) => c.submittedAt.slice(0, 10))),
+    ).sort((a, b) => b.localeCompare(a));
+    let challengeStreak = 0;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const yesterdayStr = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    if (
+      challengeDates.length > 0 &&
+      (challengeDates[0] === todayStr || challengeDates[0] === yesterdayStr)
+    ) {
+      challengeStreak = 1;
+      for (let i = 1; i < challengeDates.length; i++) {
+        const prevDate = new Date(challengeDates[i - 1]);
+        const currDate = new Date(challengeDates[i]);
+        const diffDays = (prevDate.getTime() - currDate.getTime()) / 86400000;
+        if (diffDays === 1) {
+          challengeStreak++;
+        } else {
+          break;
+        }
+      }
+    }
+
     const expectedCodes = checkAchievements({
       totalEssays: completedEssays.length,
       averageScore,
       perfectScores,
       consecutiveProgress: maxStreak,
       errorFreeEssays,
+      challengeStreak,
+      totalChallenges,
     });
     const now = new Date().toISOString();
     const unlockedNotRecorded = expectedCodes.filter((code) => !earnedCodes.has(code));
@@ -6565,6 +6622,391 @@ app.post(
     });
 
     return c.json({ success: true, data: { id } }, 201);
+  },
+);
+
+// ========== Smart Push Notifications ==========
+
+app.get('/notifications', rateLimit(30, 60_000), authMiddleware, async (c) => {
+  const user = c.get('user');
+  const { limit = '20', offset = '0' } = c.req.query();
+  const pageSize = parsePositiveInt(limit, 20, 100);
+  const pageOffset = parseNonNegativeInt(offset, 0);
+  routesLogger.info({ userId: user.id }, '[API /notifications]');
+
+  const items = await db.query.notificationLogs.findMany({
+    where: eq(notificationLogs.userId, user.id),
+    orderBy: desc(notificationLogs.createdAt),
+    limit: pageSize,
+    offset: pageOffset,
+  });
+
+  const unreadCount = await db.$count(
+    notificationLogs,
+    and(eq(notificationLogs.userId, user.id), eq(notificationLogs.isRead, false)),
+  );
+
+  return c.json({
+    success: true,
+    data: {
+      items: items.map((n) => ({
+        ...n,
+        isRead: Boolean(n.isRead),
+      })),
+      total: unreadCount + items.length,
+      unread: unreadCount,
+    },
+  });
+});
+
+app.post('/notifications/:id/read', rateLimit(30, 60_000), authMiddleware, async (c) => {
+  const user = c.get('user');
+  const id = c.req.param('id');
+  routesLogger.info({ userId: user.id, notificationId: id }, '[API /notifications/:id/read]');
+
+  await db
+    .update(notificationLogs)
+    .set({ isRead: true })
+    .where(and(eq(notificationLogs.id, id), eq(notificationLogs.userId, user.id)));
+
+  return c.json({ success: true });
+});
+
+app.post('/notifications/read-all', rateLimit(10, 60_000), authMiddleware, async (c) => {
+  const user = c.get('user');
+  routesLogger.info({ userId: user.id }, '[API /notifications/read-all]');
+
+  await db
+    .update(notificationLogs)
+    .set({ isRead: true })
+    .where(and(eq(notificationLogs.userId, user.id), eq(notificationLogs.isRead, false)));
+
+  return c.json({ success: true });
+});
+
+// ========== Daily Writing Challenge ==========
+
+function getTodayStr(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+async function calculateChallengeStreak(studentId: string): Promise<number> {
+  const submissions = await db.query.challengeSubmissions.findMany({
+    where: eq(challengeSubmissions.studentId, studentId),
+    orderBy: desc(challengeSubmissions.submittedAt),
+  });
+  const dates = Array.from(new Set(submissions.map((s) => s.submittedAt.slice(0, 10)))).sort(
+    (a, b) => b.localeCompare(a),
+  );
+  const todayStr = getTodayStr();
+  const yesterdayStr = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  if (dates.length === 0 || (dates[0] !== todayStr && dates[0] !== yesterdayStr)) {
+    return 0;
+  }
+  let streak = 1;
+  for (let i = 1; i < dates.length; i++) {
+    const prev = new Date(dates[i - 1]);
+    const curr = new Date(dates[i]);
+    if ((prev.getTime() - curr.getTime()) / 86400000 === 1) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+app.get(
+  '/daily-challenges/today',
+  rateLimit(30, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  async (c) => {
+    const user = c.get('user');
+    routesLogger.info({ userId: user.id }, '[API /daily-challenges/today]');
+
+    const today = getTodayStr();
+    // 默认学段为初中，后续可从用户资料读取
+    const stage = 'junior';
+    let challenge = await db.query.dailyChallenges.findFirst({
+      where: and(
+        eq(dailyChallenges.challengeDate, today),
+        eq(dailyChallenges.stage, stage),
+        eq(dailyChallenges.isActive, true),
+      ),
+    });
+
+    // 若当天未配置题目，自动生成一道 fallback 题目
+    if (!challenge) {
+      const now = new Date().toISOString();
+      const id = randomUUID();
+      challenge = {
+        id,
+        challengeDate: today,
+        stage,
+        type: 'free_write',
+        title: '今日自由写作',
+        instruction: '请根据下面的提示，写一段约 50 词的英文。',
+        content: 'Describe your favorite school activity and explain why you like it.',
+        referenceAnswer: null,
+        suggestedWords: 50,
+        difficulty: 1,
+        topicType: 'school_life',
+        topicCategory: null,
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      };
+      try {
+        await db.insert(dailyChallenges).values(challenge);
+      } catch {
+        // 并发创建时忽略唯一冲突
+      }
+    }
+
+    const submission = await db.query.challengeSubmissions.findFirst({
+      where: and(
+        eq(challengeSubmissions.challengeId, challenge.id),
+        eq(challengeSubmissions.studentId, user.id),
+      ),
+    });
+
+    const streak = await calculateChallengeStreak(user.id);
+
+    return c.json({
+      success: true,
+      data: {
+        challenge: {
+          id: challenge.id,
+          challengeDate: challenge.challengeDate,
+          stage: challenge.stage,
+          type: challenge.type,
+          title: challenge.title,
+          instruction: challenge.instruction,
+          content: challenge.content,
+          referenceAnswer: challenge.referenceAnswer,
+          suggestedWords: challenge.suggestedWords,
+          difficulty: challenge.difficulty,
+          topicType: challenge.topicType,
+          topicCategory: challenge.topicCategory,
+          isActive: challenge.isActive,
+        },
+        submission: submission
+          ? {
+              id: submission.id,
+              challengeId: submission.challengeId,
+              studentId: submission.studentId,
+              content: submission.content,
+              wordCount: submission.wordCount,
+              score: submission.score,
+              scoreTier: submission.scoreTier,
+              aiFeedback: JSON.parse(submission.aiFeedback ?? '{}'),
+              durationMs: submission.durationMs,
+              streakDays: submission.streakDays,
+              submittedAt: submission.submittedAt,
+            }
+          : null,
+        streak,
+      },
+    });
+  },
+);
+
+const challengeSubmissionSchema = z.object({
+  content: z.string().min(1, '提交内容不能为空').max(2000, '内容过长'),
+  durationMs: z.number().optional(),
+});
+
+app.post(
+  '/daily-challenges/:id/submit',
+  rateLimit(10, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  zValidator('json', challengeSubmissionSchema),
+  async (c) => {
+    const user = c.get('user');
+    const challengeId = c.req.param('id');
+    const { content, durationMs } = c.req.valid('json');
+    routesLogger.info({ userId: user.id, challengeId }, '[API /daily-challenges/:id/submit]');
+
+    const challenge = await db.query.dailyChallenges.findFirst({
+      where: eq(dailyChallenges.id, challengeId),
+    });
+    if (!challenge) {
+      return c.json({ success: false, error: '挑战题目不存在' }, 404);
+    }
+
+    const existing = await db.query.challengeSubmissions.findFirst({
+      where: and(
+        eq(challengeSubmissions.challengeId, challengeId),
+        eq(challengeSubmissions.studentId, user.id),
+      ),
+    });
+    if (existing) {
+      return c.json({ success: false, error: '今日挑战已提交' }, 409);
+    }
+
+    const wordCount = countWords(content);
+    const router = await getAiRouter();
+    const scoreResult = await scoreChallenge(
+      router,
+      {
+        title: challenge.title,
+        instruction: challenge.instruction,
+        content: challenge.content,
+        type: challenge.type,
+        stage: (challenge.stage as 'junior' | 'senior') ?? 'junior',
+        suggestedWords: challenge.suggestedWords ?? 50,
+      },
+      content,
+    );
+
+    const streak = await calculateChallengeStreak(user.id);
+    const newStreak = streak + 1;
+    const now = new Date().toISOString();
+    const submissionId = randomUUID();
+
+    await db.insert(challengeSubmissions).values({
+      id: submissionId,
+      challengeId,
+      studentId: user.id,
+      content,
+      wordCount,
+      score: scoreResult.score,
+      scoreTier: scoreResult.scoreTier,
+      aiFeedback: JSON.stringify({
+        feedback: scoreResult.feedback,
+        highlights: scoreResult.highlights,
+        suggestions: scoreResult.suggestions,
+      }),
+      durationMs: durationMs ?? null,
+      streakDays: newStreak,
+      submittedAt: now,
+      createdAt: now,
+    });
+
+    // 触发成就检查（异步，不阻塞返回）
+    try {
+      const totalChallenges = await db.$count(
+        challengeSubmissions,
+        eq(challengeSubmissions.studentId, user.id),
+      );
+      const expectedCodes = checkAchievements({
+        totalEssays: 0,
+        averageScore: null,
+        perfectScores: 0,
+        consecutiveProgress: 0,
+        errorFreeEssays: 0,
+        challengeStreak: newStreak,
+        totalChallenges,
+      });
+      const earnedCodes = new Set(
+        (
+          await db.query.achievements.findMany({
+            where: eq(achievements.studentId, user.id),
+          })
+        ).map((a) => a.code),
+      );
+      const unlocked = expectedCodes.filter((code) => !earnedCodes.has(code));
+      if (unlocked.length > 0) {
+        const newRecords = unlocked
+          .map((code) => {
+            const item = ACHIEVEMENT_CATALOG.find((c) => c.code === code);
+            if (!item) return null;
+            return {
+              id: randomUUID(),
+              studentId: user.id,
+              code,
+              tier: item.tier,
+              title: item.title,
+              description: item.description,
+              icon: item.icon,
+              earnedAt: now,
+              createdAt: now,
+            };
+          })
+          .filter((r): r is NonNullable<typeof r> => r !== null);
+        await db.insert(achievements).values(newRecords).onConflictDoNothing();
+      }
+    } catch (err) {
+      routesLogger.error(
+        { err, userId: user.id },
+        '[API /daily-challenges/:id/submit] achievement check failed',
+      );
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        submissionId,
+        score: scoreResult.score,
+        scoreTier: scoreResult.scoreTier,
+        feedback: scoreResult.feedback,
+        highlights: scoreResult.highlights,
+        suggestions: scoreResult.suggestions,
+        streakDays: newStreak,
+      },
+    });
+  },
+);
+
+app.get(
+  '/daily-challenges/streak',
+  rateLimit(30, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  async (c) => {
+    const user = c.get('user');
+    routesLogger.info({ userId: user.id }, '[API /daily-challenges/streak]');
+
+    const submissions = await db.query.challengeSubmissions.findMany({
+      where: eq(challengeSubmissions.studentId, user.id),
+      orderBy: desc(challengeSubmissions.submittedAt),
+    });
+    const dates = Array.from(new Set(submissions.map((s) => s.submittedAt.slice(0, 10)))).sort(
+      (a, b) => b.localeCompare(a),
+    );
+    let longestStreak = 0;
+    let currentStreak = 0;
+    if (dates.length > 0) {
+      let streak = 1;
+      for (let i = 1; i < dates.length; i++) {
+        const prev = new Date(dates[i - 1]);
+        const curr = new Date(dates[i]);
+        if ((prev.getTime() - curr.getTime()) / 86400000 === 1) {
+          streak++;
+        } else {
+          longestStreak = Math.max(longestStreak, streak);
+          streak = 1;
+        }
+      }
+      longestStreak = Math.max(longestStreak, streak);
+
+      const todayStr = getTodayStr();
+      const yesterdayStr = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+      if (dates[0] === todayStr || dates[0] === yesterdayStr) {
+        currentStreak = 1;
+        for (let i = 1; i < dates.length; i++) {
+          const prev = new Date(dates[i - 1]);
+          const curr = new Date(dates[i]);
+          if ((prev.getTime() - curr.getTime()) / 86400000 === 1) {
+            currentStreak++;
+          } else {
+            break;
+          }
+        }
+      }
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        currentStreak,
+        longestStreak,
+        lastSubmittedDate: dates[0] ?? null,
+        totalSubmissions: submissions.length,
+      },
+    });
   },
 );
 
