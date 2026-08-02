@@ -766,6 +766,13 @@ export const fetcher = {
 
   // ========== Feature 7: Learning Path ==========
   getLearningPath: () => request<ApiResponse<LearningPath>>('/api/student/learning-path'),
+  completeLearningPathRecommendation: (index: number) =>
+    request<ApiResponse<LearningPath>>(
+      `/api/student/learning-path/recommendations/${index}/complete`,
+      {
+        method: 'POST',
+      },
+    ),
 
   // ========== Feature 8: Exam Forecast ==========
   getExamForecast: (classId: string) =>

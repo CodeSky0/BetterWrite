@@ -1,5 +1,5 @@
 {
-  "extends": "@betterwrite/tsconfig/react-library.json",
+  "extends": "../../packages/tsconfig/react-library.json",
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {

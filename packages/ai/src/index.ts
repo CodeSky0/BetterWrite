@@ -21,3 +21,9 @@ export {
   type ModelEssayAnalysis,
   type ModelEssayImitationFeedback,
 } from './model-essay.js';
+export { recommendTopics } from './recommendation/index.js';
+export type {
+  RecommendationContext,
+  RecommendationResult,
+  TopicRecommendation,
+} from './recommendation/index.js';

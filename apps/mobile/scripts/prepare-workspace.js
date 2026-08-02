@@ -53,6 +53,16 @@ function setupWorkspacePackage(pkg) {
     console.log(`Warning: dist directory not found at ${distDir}`);
   }
 
+  // 对于无 dist 的 config 包（如 tsconfig），把源目录下的配置 JSON 一并复制，
+  // 避免 EAS 构建时 node_modules 中缺少被 extends 引用的文件。
+  const jsonFiles = fs
+    .readdirSync(srcDir)
+    .filter((f) => f.endsWith('.json') && f !== 'package.json');
+  for (const jsonFile of jsonFiles) {
+    fs.copyFileSync(path.join(srcDir, jsonFile), path.join(destDir, jsonFile));
+    console.log(`Copied ${jsonFile} from ${srcDir}`);
+  }
+
   console.log(`Linked ${pkg.name} -> ${destDir}`);
 }
 

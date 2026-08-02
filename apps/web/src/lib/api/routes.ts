@@ -7,6 +7,7 @@ import {
   checkGrammar,
   getSynonyms,
   polishEssay,
+  recommendTopics,
   scoreChallenge,
   upgradeSentences,
 } from '@betterwrite/ai';
@@ -6880,6 +6881,7 @@ app.get(
   requireRole(UserRole.STUDENT),
   async (c) => {
     const user = c.get('user');
+    routesLogger.info({ userId: user.id }, '[API /student/learning-path]');
 
     const now = new Date();
     const weekStart = new Date(now);
@@ -6891,61 +6893,249 @@ app.get(
       where: and(eq(learningPaths.studentId, user.id), eq(learningPaths.weekStart, weekStartStr)),
     });
 
-    // If no path exists, generate one based on error book
     if (!path) {
-      const errors = await db.query.errorBooks.findMany({
-        where: and(eq(errorBooks.studentId, user.id), eq(errorBooks.status, 'unresolved')),
-      });
-
-      // Group errors by type and find top weaknesses
-      const errorCounts: Record<string, number> = {};
-      for (const e of errors) {
-        errorCounts[e.errorType] = (errorCounts[e.errorType] ?? 0) + 1;
-      }
-      const weakPoints = Object.entries(errorCounts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([type]) => type);
-
-      // Generate recommendations
-      const recommendations = weakPoints.map((wp, i) => ({
-        type: 'error_practice' as const,
-        id: wp,
-        title: `${wp} 专项练习`,
-        reason: `你在${wp}类型错误中出现最多（${errorCounts[wp]}次）`,
-        priority: i === 0 ? ('high' as const) : i === 1 ? ('medium' as const) : ('low' as const),
-        isCompleted: false,
-      }));
-
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6);
-      const nowStr = now.toISOString();
-
-      const pathId = randomUUID();
-      await db.insert(learningPaths).values({
-        id: pathId,
-        studentId: user.id,
-        weekStart: weekStartStr,
-        weekEnd: weekEnd.toISOString().split('T')[0],
-        weakPoints: JSON.stringify(weakPoints),
-        recommendations: JSON.stringify(recommendations),
-        aiAdvice:
-          weakPoints.length > 0
-            ? `本周重点攻克：${weakPoints.join('、')}。建议每天花10分钟做针对性练习。`
-            : '继续保持！你的写作水平很稳定，尝试挑战更高难度的题目吧。',
-        completedCount: 0,
-        totalRecommendations: recommendations.length,
-        status: 'active',
-        createdAt: nowStr,
-        updatedAt: nowStr,
-      });
-
-      path = await db.query.learningPaths.findFirst({
-        where: eq(learningPaths.id, pathId),
-      });
+      path = await generateLearningPath(user.id, weekStart);
     }
 
     return c.json({ success: true, data: path });
+  },
+);
+
+/**
+ * 生成新的学习路径：聚合学生数据并调用 AI 推荐引擎。
+ */
+async function generateLearningPath(
+  studentId: string,
+  weekStart: Date,
+): Promise<typeof learningPaths.$inferSelect | undefined> {
+  const weekStartStr = weekStart.toISOString().split('T')[0];
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+  const nowStr = new Date().toISOString();
+
+  // 1. 推断学生学段：取最近一篇作文的 stage，否则默认初中
+  const latestEssay = await db.query.essays.findFirst({
+    where: eq(essays.studentId, studentId),
+    orderBy: desc(essays.submittedAt),
+  });
+  const stage = latestEssay?.stage === 'senior' ? 'senior' : 'junior';
+
+  // 2. 近期作文（最近 10 篇）
+  const recentEssayRows = await db.query.essays.findMany({
+    where: eq(essays.studentId, studentId),
+    orderBy: desc(essays.submittedAt),
+    limit: 10,
+    with: { task: true },
+  });
+  const recentEssays = recentEssayRows.map((e) => ({
+    id: e.id,
+    topicType: e.task?.topicType ?? null,
+    topicCategory: e.task?.topicCategory ?? null,
+    totalScore: e.totalScore ?? null,
+    scoreTier: e.scoreTier ?? null,
+    submittedAt: e.submittedAt,
+  }));
+
+  // 3. 错题统计
+  const errorRows = await db.query.errorBooks.findMany({
+    where: eq(errorBooks.studentId, studentId),
+  });
+  const errorMap = new Map<string, { count: number; unresolvedCount: number }>();
+  for (const e of errorRows) {
+    const cur = errorMap.get(e.errorType) ?? { count: 0, unresolvedCount: 0 };
+    cur.count += 1;
+    if (e.status === 'unresolved') cur.unresolvedCount += 1;
+    errorMap.set(e.errorType, cur);
+  }
+  const errorStats = Array.from(errorMap.entries()).map(([errorType, stats]) => ({
+    errorType,
+    count: stats.count,
+    unresolvedCount: stats.unresolvedCount,
+  }));
+
+  // 4. 微技能进度与可用微技能
+  const progressRows = await db.query.microSkillProgress.findMany({
+    where: eq(microSkillProgress.studentId, studentId),
+    with: { skill: true },
+  });
+  const studentMicroSkillProgress = progressRows.map((p) => ({
+    skillId: p.skillId,
+    skillCode: p.skill?.code ?? '',
+    skillName: p.skill?.name ?? '',
+    category: p.skill?.category ?? '',
+    currentLevel: p.currentLevel,
+    totalScore: p.totalScore,
+    completedExercises: p.completedExercises,
+  }));
+
+  const availableSkillRows = await db.query.microSkills.findMany({
+    where: eq(microSkills.isActive, true),
+  });
+  const availableMicroSkills = availableSkillRows.map((s) => ({
+    id: s.id,
+    code: s.code,
+    name: s.name,
+    category: s.category,
+    difficulty: s.difficulty,
+  }));
+
+  // 5. 可用题库题目（同学段，最多 20 道）
+  const availableQuestionRows = await db.query.questionBank.findMany({
+    where: eq(questionBank.stage, stage),
+    limit: 20,
+  });
+  const availableQuestions = availableQuestionRows.map((q) => ({
+    id: q.id,
+    topicType: q.topicType,
+    topicCategory: q.topicCategory,
+    title: q.title,
+    difficulty: q.difficulty ?? 'medium',
+  }));
+
+  // 6. 考试趋势分析
+  const examTrends = await analyzeExamTrends();
+
+  // 7. 调用 AI 推荐引擎
+  const router = await getAiRouter();
+  const result = await recommendTopics(router, {
+    studentId,
+    stage,
+    recentEssays,
+    errorStats,
+    microSkillProgress: studentMicroSkillProgress,
+    availableMicroSkills,
+    availableQuestions,
+    examTrends,
+  });
+
+  const pathId = randomUUID();
+  await db.insert(learningPaths).values({
+    id: pathId,
+    studentId,
+    weekStart: weekStartStr,
+    weekEnd: weekEnd.toISOString().split('T')[0],
+    weakPoints: JSON.stringify(result.weakPoints),
+    recommendations: JSON.stringify(result.recommendations),
+    aiAdvice: result.aiAdvice,
+    completedCount: 0,
+    totalRecommendations: result.recommendations.length,
+    status: 'active',
+    createdAt: nowStr,
+    updatedAt: nowStr,
+  });
+
+  return db.query.learningPaths.findFirst({
+    where: eq(learningPaths.id, pathId),
+  });
+}
+
+/**
+ * 基于 exam_history 分析本地考试话题趋势。
+ */
+async function analyzeExamTrends(): Promise<
+  Array<{
+    topicCategory: string;
+    frequency: number;
+    recentYears: number[];
+    trend: 'rising' | 'stable' | 'declining';
+  }>
+> {
+  const exams = await db.query.examHistory.findMany({
+    orderBy: desc(examHistory.year),
+  });
+
+  const grouped = new Map<string, { years: number[]; recent5Years: number[] }>();
+  const currentYear = new Date().getFullYear();
+  for (const exam of exams) {
+    const group = grouped.get(exam.topicCategory) ?? { years: [], recent5Years: [] };
+    group.years.push(exam.year);
+    if (exam.year >= currentYear - 5) group.recent5Years.push(exam.year);
+    grouped.set(exam.topicCategory, group);
+  }
+
+  return Array.from(grouped.entries()).map(([topicCategory, group]) => {
+    const frequency = group.years.length;
+    const recentFrequency = group.recent5Years.length;
+    // 简单趋势判断：近5年出现次数 vs 前5年出现次数
+    const olderFrequency = frequency - recentFrequency;
+    let trend: 'rising' | 'stable' | 'declining' = 'stable';
+    if (recentFrequency > olderFrequency) trend = 'rising';
+    else if (recentFrequency < olderFrequency) trend = 'declining';
+
+    return {
+      topicCategory,
+      frequency,
+      recentYears: Array.from(new Set(group.years))
+        .sort((a, b) => b - a)
+        .slice(0, 5),
+      trend,
+    };
+  });
+}
+
+// POST /api/student/learning-path/recommendations/:index/complete - Mark a recommendation as completed
+app.post(
+  '/student/learning-path/recommendations/:index/complete',
+  rateLimit(30, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  async (c) => {
+    const user = c.get('user');
+    const index = Number(c.req.param('index'));
+    routesLogger.info(
+      { userId: user.id, index },
+      '[API /student/learning-path/recommendations/:index/complete]',
+    );
+
+    if (!Number.isFinite(index) || index < 0) {
+      throw new HTTPException(400, { message: '无效的推荐项索引' });
+    }
+
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay() + 1);
+    const weekStartStr = weekStart.toISOString().split('T')[0];
+
+    const path = await db.query.learningPaths.findFirst({
+      where: and(eq(learningPaths.studentId, user.id), eq(learningPaths.weekStart, weekStartStr)),
+    });
+
+    if (!path) {
+      throw new HTTPException(404, { message: '本周学习路径不存在' });
+    }
+
+    let recommendations: Array<Record<string, unknown>> = [];
+    try {
+      recommendations = JSON.parse(path.recommendations ?? '[]') as Array<Record<string, unknown>>;
+    } catch {
+      recommendations = [];
+    }
+
+    if (index >= recommendations.length) {
+      throw new HTTPException(400, { message: '推荐项索引超出范围' });
+    }
+
+    if (recommendations[index]?.isCompleted) {
+      return c.json({ success: true, data: path });
+    }
+
+    recommendations[index] = { ...recommendations[index], isCompleted: true };
+    const completedCount = recommendations.filter((r) => r.isCompleted).length;
+
+    await db
+      .update(learningPaths)
+      .set({
+        recommendations: JSON.stringify(recommendations),
+        completedCount,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(learningPaths.id, path.id));
+
+    const updatedPath = await db.query.learningPaths.findFirst({
+      where: eq(learningPaths.id, path.id),
+    });
+
+    return c.json({ success: true, data: updatedPath });
   },
 );
 

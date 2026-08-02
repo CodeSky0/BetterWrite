@@ -21,11 +21,13 @@ import {
   RefreshCw,
   Target,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
 export default function StudentLearningPathPage() {
   const [path, setPath] = useState<LearningPath | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [completingIndex, setCompletingIndex] = useState<number | null>(null);
 
   const loadPath = useCallback(() => {
     setIsLoading(true);
@@ -40,6 +42,33 @@ export default function StudentLearningPathPage() {
   useEffect(() => {
     loadPath();
   }, [loadPath]);
+
+  const handleComplete = useCallback(async (index: number) => {
+    setCompletingIndex(index);
+    try {
+      const res = await fetcher.completeLearningPathRecommendation(index);
+      if (res.success && res.data) {
+        setPath(res.data);
+      }
+    } finally {
+      setCompletingIndex(null);
+    }
+  }, []);
+
+  function getRecommendationLink(rec: LearningPathRecommendation): string | null {
+    switch (rec.type) {
+      case 'error_practice':
+        return `/student/errors/${encodeURIComponent(rec.id)}`;
+      case 'micro_skill':
+        return '/student/micro-skills';
+      case 'question_bank':
+        return `/student/practice/${rec.id}`;
+      case 'reading':
+        return `/student/model-essays/${rec.id}`;
+      default:
+        return null;
+    }
+  }
 
   const parseRecommendations = (val: string | LearningPathRecommendation[]) => {
     if (Array.isArray(val)) return val;
@@ -165,38 +194,68 @@ export default function StudentLearningPathPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {parseRecommendations(path.recommendations).map((rec) => (
-                    <div
-                      key={rec.id}
-                      className={`flex items-center justify-between rounded-md border p-4 ${
-                        rec.isCompleted
-                          ? 'bg-success/5 border-success/20'
-                          : priorityColor(rec.priority)
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        {rec.isCompleted ? (
-                          <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
-                        ) : (
-                          <MapPin className="w-5 h-5 shrink-0" />
-                        )}
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-medium text-neutral-10">{rec.title}</h3>
-                            <Badge variant="outline" className="text-label-12">
-                              {LearningPathRecommendationTypeLabels[rec.type] ?? rec.type}
-                            </Badge>
+                  {parseRecommendations(path.recommendations).map((rec, index) => {
+                    const link = getRecommendationLink(rec);
+                    const cardClass = `flex items-center justify-between rounded-md border p-4 ${
+                      rec.isCompleted
+                        ? 'bg-success/5 border-success/20'
+                        : priorityColor(rec.priority)
+                    }`;
+
+                    const content = (
+                      <>
+                        <div className="flex items-center gap-3 min-w-0">
+                          {rec.isCompleted ? (
+                            <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
+                          ) : (
+                            <MapPin className="w-5 h-5 shrink-0" />
+                          )}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-medium text-neutral-10">{rec.title}</h3>
+                              <Badge variant="outline" className="text-label-12">
+                                {LearningPathRecommendationTypeLabels[rec.type] ?? rec.type}
+                              </Badge>
+                            </div>
+                            <p className="text-label-12 text-neutral-7 mt-0.5">{rec.reason}</p>
                           </div>
-                          <p className="text-label-12 text-neutral-7 mt-0.5">{rec.reason}</p>
                         </div>
+                        <div className="flex items-center gap-2 shrink-0 ml-2">
+                          <Badge className={`text-label-12 ${priorityColor(rec.priority)}`}>
+                            {priorityLabel(rec.priority)}
+                          </Badge>
+                        </div>
+                      </>
+                    );
+
+                    return (
+                      <div key={`${rec.type}-${rec.id}-${index}`} className={cardClass}>
+                        {link ? (
+                          <Link
+                            href={link}
+                            className="flex items-center justify-between flex-1 min-w-0"
+                          >
+                            {content}
+                          </Link>
+                        ) : (
+                          <div className="flex items-center justify-between flex-1 min-w-0">
+                            {content}
+                          </div>
+                        )}
+                        {!rec.isCompleted && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0 ml-2 h-8 text-label-12"
+                            disabled={completingIndex === index}
+                            onClick={() => handleComplete(index)}
+                          >
+                            {completingIndex === index ? '标记中...' : '标记完成'}
+                          </Button>
+                        )}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge className={`text-label-12 ${priorityColor(rec.priority)}`}>
-                          {priorityLabel(rec.priority)}
-                        </Badge>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
 
                   {parseRecommendations(path.recommendations).length === 0 && (
                     <p className="text-center text-neutral-7 py-4">暂无推荐</p>
