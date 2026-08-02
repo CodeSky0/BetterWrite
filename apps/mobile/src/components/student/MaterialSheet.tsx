@@ -9,7 +9,7 @@ import {
   WritingMaterialTypeLabels,
   type WritingMaterialTypeValue,
 } from '@betterwrite/shared';
-import { Heart, Search, X } from 'lucide-react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -134,13 +134,13 @@ export function MaterialSheet({
           <View style={styles.header}>
             <Text style={[styles.title, { color: colors.textPrimary }]}>写作素材库</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <X size={22} color={colors.textSecondary} />
+              <Ionicons name="close" size={22} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
 
           <View style={styles.filterRow}>
             <View style={[styles.search, { backgroundColor: colors.bgSecondary }]}>
-              <Search size={16} color={colors.textTertiary} />
+              <Ionicons name="search" size={16} color={colors.textTertiary} />
               <TextInput
                 value={keyword}
                 onChangeText={(text) => {
@@ -251,10 +251,10 @@ export function MaterialSheet({
                       )}
                     </View>
                     <TouchableOpacity onPress={() => toggleFavorite(material)}>
-                      <Heart
+                      <Ionicons
+                        name={material.isFavorited ? 'heart' : 'heart-outline'}
                         size={18}
                         color={material.isFavorited ? colors.error : colors.textTertiary}
-                        fill={material.isFavorited ? colors.error : 'transparent'}
                       />
                     </TouchableOpacity>
                   </View>
@@ -314,7 +314,11 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
   sheet: {
