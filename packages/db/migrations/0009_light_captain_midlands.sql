@@ -376,7 +376,7 @@ CREATE INDEX `peer_reviews_essay_idx` ON `peer_reviews` (`essay_id`);--> stateme
 CREATE INDEX `peer_reviews_reviewer_idx` ON `peer_reviews` (`reviewer_id`);--> statement-breakpoint
 CREATE INDEX `peer_reviews_status_idx` ON `peer_reviews` (`status`);--> statement-breakpoint
 CREATE INDEX `peer_reviews_unique_idx` ON `peer_reviews` (`essay_id`,`reviewer_id`);--> statement-breakpoint
-DROP INDEX `model_routes_stage_unique`;--> statement-breakpoint
+DROP INDEX IF EXISTS `model_routes_stage_unique`;--> statement-breakpoint
 ALTER TABLE `model_routes` ADD `route_stage` text;--> statement-breakpoint
 ALTER TABLE `model_routes` ADD `senior_essay_type` text;--> statement-breakpoint
 CREATE INDEX `model_routes_stage_unique_idx` ON `model_routes` (`stage`,`route_stage`,`senior_essay_type`);--> statement-breakpoint

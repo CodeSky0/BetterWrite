@@ -3012,11 +3012,7 @@ app.post(
         { err: enqueueErr instanceof Error ? enqueueErr.message : 'unknown', imitationId },
         '[API imitate] failed to enqueue correction job',
       );
-      // 入队失败时回滚为 pending，让前端可感知并支持重试
-      await db
-        .update(modelEssayImitations)
-        .set({ status: 'failed', updatedAt: new Date().toISOString() })
-        .where(eq(modelEssayImitations.id, imitationId));
+      // 入队失败时保持 pending，让前端可手动重试或后台自动重试
     }
 
     const duration = Date.now() - start;
