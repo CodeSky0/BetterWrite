@@ -123,6 +123,12 @@ const navItems: NavItem[] = [
     roles: [UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN],
   },
   {
+    href: '/teacher/daily-challenges',
+    label: '每日挑战',
+    icon: <Flame className="w-4 h-4" />,
+    roles: [UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN],
+  },
+  {
     href: '/teacher/peer-review',
     label: '同伴互评',
     icon: <Users className="w-4 h-4" />,

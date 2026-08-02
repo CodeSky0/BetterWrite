@@ -835,6 +835,76 @@ export const fetcher = {
       '/api/daily-challenges/streak',
     ),
 
+  // ---------- Teacher daily challenge management ----------
+  getTeacherDailyChallenges: (params?: {
+    stage?: string;
+    type?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    keyword?: string;
+    page?: number;
+    pageSize?: number;
+  }) =>
+    request<
+      ApiResponse<{
+        list: DailyChallenge[];
+        total: number;
+        page: number;
+        pageSize: number;
+      }>
+    >(
+      `/api/teacher/daily-challenges?${new URLSearchParams({
+        ...(params?.stage ? { stage: params.stage } : {}),
+        ...(params?.type ? { type: params.type } : {}),
+        ...(params?.dateFrom ? { dateFrom: params.dateFrom } : {}),
+        ...(params?.dateTo ? { dateTo: params.dateTo } : {}),
+        ...(params?.keyword ? { keyword: params.keyword } : {}),
+        page: String(params?.page ?? 1),
+        pageSize: String(params?.pageSize ?? 20),
+      }).toString()}`,
+    ),
+  createDailyChallenge: (data: {
+    challengeDate: string;
+    stage?: string;
+    type: string;
+    title: string;
+    instruction: string;
+    content: string;
+    referenceAnswer?: string;
+    suggestedWords?: number;
+    difficulty?: number;
+    topicType?: string;
+    topicCategory?: string;
+    isActive?: boolean;
+  }) =>
+    request<ApiResponse<DailyChallenge>>('/api/teacher/daily-challenges', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateDailyChallenge: (
+    id: string,
+    data: Partial<{
+      challengeDate: string;
+      stage: string;
+      type: string;
+      title: string;
+      instruction: string;
+      content: string;
+      referenceAnswer: string;
+      suggestedWords: number;
+      difficulty: number;
+      topicType: string;
+      topicCategory: string;
+      isActive: boolean;
+    }>,
+  ) =>
+    request<ApiResponse<DailyChallenge>>(`/api/teacher/daily-challenges/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteDailyChallenge: (id: string) =>
+    request<ApiResponse<null>>(`/api/teacher/daily-challenges/${id}`, { method: 'DELETE' }),
+
   // ========== Feature 11: Writing Material Library ==========
   getWritingMaterials: (params?: {
     type?: string;

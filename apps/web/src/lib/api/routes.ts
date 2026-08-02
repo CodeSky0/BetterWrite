@@ -58,7 +58,9 @@ import {
 import {
   AchievementTier,
   AiAssistantMode,
+  DailyChallengeType,
   DefaultPeerReviewQuestions,
+  EducationStage,
   ExerciseType,
   PeerReviewStatus,
   StudentTag,
@@ -110,7 +112,7 @@ import { API_CONFIG_UPDATED_CHANNEL } from '@betterwrite/shared/queue';
 import { performOcr } from '@betterwrite/worker';
 import { zValidator } from '@hono/zod-validator';
 import bcrypt from 'bcryptjs';
-import { type SQL, and, count, desc, eq, gt, gte, inArray, lt, sql } from 'drizzle-orm';
+import { type SQL, and, count, desc, eq, gt, gte, inArray, lt, lte, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
@@ -7482,6 +7484,222 @@ app.get(
         totalSubmissions: submissions.length,
       },
     });
+  },
+);
+
+// ---------- Teacher daily challenge management ----------
+
+const teacherChallengeSchema = z.object({
+  challengeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式为 YYYY-MM-DD'),
+  stage: z.enum([EducationStage.JUNIOR, EducationStage.SENIOR]).default(EducationStage.JUNIOR),
+  type: z.enum([
+    DailyChallengeType.SENTENCE_REWRITE,
+    DailyChallengeType.DIALOGUE,
+    DailyChallengeType.CONTINUATION,
+    DailyChallengeType.TRANSLATION,
+    DailyChallengeType.FREE_WRITE,
+  ]),
+  title: z.string().min(1, '标题不能为空').max(200, '标题过长'),
+  instruction: z.string().min(1, '说明不能为空').max(1000, '说明过长'),
+  content: z.string().min(1, '题目内容不能为空').max(2000, '题目内容过长'),
+  referenceAnswer: z.string().max(2000).optional(),
+  suggestedWords: z.coerce.number().int().min(1).max(500).default(50),
+  difficulty: z.coerce.number().int().min(1).max(5).default(1),
+  topicType: z.string().max(100).optional(),
+  topicCategory: z.string().max(100).optional(),
+  isActive: z.boolean().default(true),
+});
+
+const challengeFiltersSchema = z.object({
+  stage: z.enum([EducationStage.JUNIOR, EducationStage.SENIOR]).optional(),
+  type: z.string().optional(),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+  keyword: z.string().optional(),
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(20),
+});
+
+app.get(
+  '/teacher/daily-challenges',
+  rateLimit(30, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN),
+  zValidator('query', challengeFiltersSchema),
+  async (c) => {
+    const user = c.get('user');
+    const filters = c.req.valid('query');
+    routesLogger.info({ userId: user.id }, '[API /teacher/daily-challenges]');
+
+    const page = filters.page;
+    const pageSize = filters.pageSize;
+    const offset = (page - 1) * pageSize;
+
+    const conditions: SQL<unknown>[] = [];
+    if (filters.stage) conditions.push(eq(dailyChallenges.stage, filters.stage));
+    if (filters.type) conditions.push(eq(dailyChallenges.type, filters.type));
+    if (filters.dateFrom) conditions.push(gte(dailyChallenges.challengeDate, filters.dateFrom));
+    if (filters.dateTo) conditions.push(lte(dailyChallenges.challengeDate, filters.dateTo));
+    if (filters.keyword) {
+      conditions.push(
+        sql`(${dailyChallenges.title} LIKE ${`%${filters.keyword}%`} OR ${dailyChallenges.content} LIKE ${`%${filters.keyword}%`})`,
+      );
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [list, totalRes] = await Promise.all([
+      db.query.dailyChallenges.findMany({
+        where: whereClause,
+        orderBy: desc(dailyChallenges.challengeDate),
+        limit: pageSize,
+        offset,
+      }),
+      db.select({ count: count() }).from(dailyChallenges).where(whereClause),
+    ]);
+
+    return c.json({
+      success: true,
+      data: {
+        list,
+        total: totalRes[0]?.count ?? 0,
+        page,
+        pageSize,
+      },
+    });
+  },
+);
+
+app.post(
+  '/teacher/daily-challenges',
+  rateLimit(10, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN),
+  zValidator('json', teacherChallengeSchema),
+  async (c) => {
+    const user = c.get('user');
+    const data = c.req.valid('json');
+    routesLogger.info({ userId: user.id }, '[API /teacher/daily-challenges POST]');
+
+    const existing = await db.query.dailyChallenges.findFirst({
+      where: and(
+        eq(dailyChallenges.challengeDate, data.challengeDate),
+        eq(dailyChallenges.stage, data.stage),
+      ),
+    });
+    if (existing) {
+      return c.json({ success: false, error: '该日期和学段已存在每日挑战' }, 409);
+    }
+
+    const now = new Date().toISOString();
+    const id = randomUUID();
+    const [record] = await db
+      .insert(dailyChallenges)
+      .values({
+        id,
+        challengeDate: data.challengeDate,
+        stage: data.stage,
+        type: data.type,
+        title: data.title,
+        instruction: data.instruction,
+        content: data.content,
+        referenceAnswer: data.referenceAnswer ?? null,
+        suggestedWords: data.suggestedWords,
+        difficulty: data.difficulty,
+        topicType: data.topicType ?? null,
+        topicCategory: data.topicCategory ?? null,
+        isActive: data.isActive,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+
+    return c.json({ success: true, data: record });
+  },
+);
+
+app.put(
+  '/teacher/daily-challenges/:id',
+  rateLimit(10, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN),
+  zValidator('json', teacherChallengeSchema.partial()),
+  async (c) => {
+    const user = c.get('user');
+    const id = c.req.param('id');
+    const data = c.req.valid('json');
+    routesLogger.info(
+      { userId: user.id, challengeId: id },
+      '[API /teacher/daily-challenges/:id PUT]',
+    );
+
+    const existing = await db.query.dailyChallenges.findFirst({
+      where: eq(dailyChallenges.id, id),
+    });
+    if (!existing) {
+      return c.json({ success: false, error: '挑战题目不存在' }, 404);
+    }
+
+    if (data.challengeDate && data.stage) {
+      const conflict = await db.query.dailyChallenges.findFirst({
+        where: and(
+          eq(dailyChallenges.challengeDate, data.challengeDate),
+          eq(dailyChallenges.stage, data.stage),
+          sql`${dailyChallenges.id} <> ${id}`,
+        ),
+      });
+      if (conflict) {
+        return c.json({ success: false, error: '该日期和学段已存在每日挑战' }, 409);
+      }
+    }
+
+    const now = new Date().toISOString();
+    const [record] = await db
+      .update(dailyChallenges)
+      .set({
+        ...(data.challengeDate !== undefined && { challengeDate: data.challengeDate }),
+        ...(data.stage !== undefined && { stage: data.stage }),
+        ...(data.type !== undefined && { type: data.type }),
+        ...(data.title !== undefined && { title: data.title }),
+        ...(data.instruction !== undefined && { instruction: data.instruction }),
+        ...(data.content !== undefined && { content: data.content }),
+        ...(data.referenceAnswer !== undefined && { referenceAnswer: data.referenceAnswer }),
+        ...(data.suggestedWords !== undefined && { suggestedWords: data.suggestedWords }),
+        ...(data.difficulty !== undefined && { difficulty: data.difficulty }),
+        ...(data.topicType !== undefined && { topicType: data.topicType }),
+        ...(data.topicCategory !== undefined && { topicCategory: data.topicCategory }),
+        ...(data.isActive !== undefined && { isActive: data.isActive }),
+        updatedAt: now,
+      })
+      .where(eq(dailyChallenges.id, id))
+      .returning();
+
+    return c.json({ success: true, data: record });
+  },
+);
+
+app.delete(
+  '/teacher/daily-challenges/:id',
+  rateLimit(10, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN),
+  async (c) => {
+    const user = c.get('user');
+    const id = c.req.param('id');
+    routesLogger.info(
+      { userId: user.id, challengeId: id },
+      '[API /teacher/daily-challenges/:id DELETE]',
+    );
+
+    const existing = await db.query.dailyChallenges.findFirst({
+      where: eq(dailyChallenges.id, id),
+    });
+    if (!existing) {
+      return c.json({ success: false, error: '挑战题目不存在' }, 404);
+    }
+
+    await db.delete(dailyChallenges).where(eq(dailyChallenges.id, id));
+    return c.json({ success: true, data: null });
   },
 );
 
