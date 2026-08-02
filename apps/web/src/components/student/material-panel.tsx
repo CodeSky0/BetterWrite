@@ -90,6 +90,7 @@ export function MaterialPanel({ stage, topicType, onInsert }: MaterialPanelProps
       }
     } catch (err) {
       clientLogger.error('[MaterialPanel] favorite error:', err);
+      setError('操作收藏失败，请稍后重试');
     }
   };
 
