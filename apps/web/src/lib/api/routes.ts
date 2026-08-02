@@ -2153,7 +2153,9 @@ app.get(
       // 获取标签
       const tags =
         studentIds.length > 0
-          ? await db.query.studentTags.findMany({ where: inArray(studentTags.studentId, studentIds) })
+          ? await db.query.studentTags.findMany({
+              where: inArray(studentTags.studentId, studentIds),
+            })
           : [];
       const tagMap = new Map(tags.map((t) => [t.studentId, t.tag]));
 
@@ -2263,7 +2265,9 @@ app.get(
       // 获取标签
       const tags =
         studentIds.length > 0
-          ? await db.query.studentTags.findMany({ where: inArray(studentTags.studentId, studentIds) })
+          ? await db.query.studentTags.findMany({
+              where: inArray(studentTags.studentId, studentIds),
+            })
           : [];
       const tagMap = new Map(tags.map((t) => [t.studentId, t.tag]));
 
@@ -8423,7 +8427,7 @@ app.post(
     // Bug #PERF-3.1: 原算法复杂度 O(n²)，每次都要 filter/some 遍历 assignments
     // 新算法：使用计数器 Map 和集合去重，将内层循环优化为 O(1) 查找
     const assignments: Array<{ essayId: string; reviewerId: string }> = [];
-    
+
     // 按学生分组作文 ID，便于快速查找
     const studentEssayMap = new Map<string, string[]>();
     for (const essay of essayList) {
@@ -8432,35 +8436,35 @@ app.post(
       }
       studentEssayMap.get(essay.studentId)?.push(essay.id);
     }
-    
+
     // 跟踪每个学生的已分配数量和已分配的作文
     const reviewerCountMap = new Map<string, number>();
     const assignmentSet = new Set<string>(); // key: `${essayId}:${reviewerId}`
-    
+
     const students = Array.from(studentEssayMap.keys());
     const totalEssays = essayList.length;
-    
+
     // 轮转分配：每篇作文依次分配 reviewersPerEssay 个评审者
     for (let i = 0; i < totalEssays; i++) {
       const targetEssay = essayList[i];
       const targetStudentId = targetEssay.studentId;
       let assigned = 0;
-      
+
       // 从下一个学生开始轮转，确保公平分配
       for (let j = 0; j < students.length && assigned < reviewsPerEssay; j++) {
         const reviewerStudentId = students[(i + 1 + j) % students.length];
-        
+
         // 不能评审自己的作文
         if (reviewerStudentId === targetStudentId) continue;
-        
+
         // 检查该学生是否已达到评审上限
         const currentCount = reviewerCountMap.get(reviewerStudentId) ?? 0;
         if (currentCount >= reviewsPerStudent) continue;
-        
+
         // 检查是否已经分配过（避免重复）
         const assignmentKey = `${targetEssay.id}:${reviewerStudentId}`;
         if (assignmentSet.has(assignmentKey)) continue;
-        
+
         // 添加分配
         assignments.push({ essayId: targetEssay.id, reviewerId: reviewerStudentId });
         assignmentSet.add(assignmentKey);

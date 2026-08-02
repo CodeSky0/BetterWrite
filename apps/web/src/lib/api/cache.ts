@@ -98,24 +98,26 @@ export function memoizeWithTags<T>(
   fn: () => Promise<T>,
 ): Promise<T> {
   const result = memoizeAsync(key, ttlMs, fn);
-  
+
   // 记录 key 与 tag 的关联
-  result.then(() => {
-    for (const tag of tags) {
-      if (!keyTagsMap.has(tag)) {
-        keyTagsMap.set(tag, new Set());
+  result
+    .then(() => {
+      for (const tag of tags) {
+        if (!keyTagsMap.has(tag)) {
+          keyTagsMap.set(tag, new Set());
+        }
+        keyTagsMap.get(tag)?.add(key);
       }
-      keyTagsMap.get(tag)!.add(key);
-    }
-  }).catch(() => {}); // ignore errors
-  
+    })
+    .catch(() => {}); // ignore errors
+
   return result;
 }
 
 export function invalidateCacheByTag(tag: string): void {
   const keys = keyTagsMap.get(tag);
   if (!keys || keys.size === 0) return;
-  
+
   // 失效所有关联的 key
   for (const key of keys) {
     invalidateCache(key);
