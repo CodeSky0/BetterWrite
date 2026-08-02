@@ -96,23 +96,17 @@
       "indexes": {
         "users_email_unique": {
           "name": "users_email_unique",
-          "columns": [
-            "email"
-          ],
+          "columns": ["email"],
           "isUnique": true
         },
         "users_school_idx": {
           "name": "users_school_idx",
-          "columns": [
-            "school_id"
-          ],
+          "columns": ["school_id"],
           "isUnique": false
         },
         "users_role_idx": {
           "name": "users_role_idx",
-          "columns": [
-            "role"
-          ],
+          "columns": ["role"],
           "isUnique": false
         }
       },
@@ -121,12 +115,8 @@
           "name": "users_school_id_schools_id_fk",
           "tableFrom": "users",
           "tableTo": "schools",
-          "columnsFrom": [
-            "school_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["school_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -166,12 +156,8 @@
           "name": "sessions_user_id_users_id_fk",
           "tableFrom": "sessions",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -260,9 +246,7 @@
       "indexes": {
         "schools_code_unique": {
           "name": "schools_code_unique",
-          "columns": [
-            "code"
-          ],
+          "columns": ["code"],
           "isUnique": true
         }
       },
@@ -314,23 +298,17 @@
       "indexes": {
         "class_enrollments_class_idx": {
           "name": "class_enrollments_class_idx",
-          "columns": [
-            "class_id"
-          ],
+          "columns": ["class_id"],
           "isUnique": false
         },
         "class_enrollments_user_idx": {
           "name": "class_enrollments_user_idx",
-          "columns": [
-            "user_id"
-          ],
+          "columns": ["user_id"],
           "isUnique": false
         },
         "class_enrollments_role_idx": {
           "name": "class_enrollments_role_idx",
-          "columns": [
-            "role"
-          ],
+          "columns": ["role"],
           "isUnique": false
         }
       },
@@ -339,12 +317,8 @@
           "name": "class_enrollments_class_id_classes_id_fk",
           "tableFrom": "class_enrollments",
           "tableTo": "classes",
-          "columnsFrom": [
-            "class_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["class_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -352,12 +326,8 @@
           "name": "class_enrollments_user_id_users_id_fk",
           "tableFrom": "class_enrollments",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -453,23 +423,17 @@
       "indexes": {
         "classes_school_idx": {
           "name": "classes_school_idx",
-          "columns": [
-            "school_id"
-          ],
+          "columns": ["school_id"],
           "isUnique": false
         },
         "classes_teacher_idx": {
           "name": "classes_teacher_idx",
-          "columns": [
-            "teacher_id"
-          ],
+          "columns": ["teacher_id"],
           "isUnique": false
         },
         "classes_stage_idx": {
           "name": "classes_stage_idx",
-          "columns": [
-            "stage"
-          ],
+          "columns": ["stage"],
           "isUnique": false
         }
       },
@@ -478,12 +442,8 @@
           "name": "classes_school_id_schools_id_fk",
           "tableFrom": "classes",
           "tableTo": "schools",
-          "columnsFrom": [
-            "school_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["school_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -491,12 +451,8 @@
           "name": "classes_teacher_id_users_id_fk",
           "tableFrom": "classes",
           "tableTo": "users",
-          "columnsFrom": [
-            "teacher_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["teacher_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -658,53 +614,37 @@
       "indexes": {
         "essay_tasks_class_idx": {
           "name": "essay_tasks_class_idx",
-          "columns": [
-            "class_id"
-          ],
+          "columns": ["class_id"],
           "isUnique": false
         },
         "essay_tasks_status_idx": {
           "name": "essay_tasks_status_idx",
-          "columns": [
-            "status"
-          ],
+          "columns": ["status"],
           "isUnique": false
         },
         "essay_tasks_class_status_idx": {
           "name": "essay_tasks_class_status_idx",
-          "columns": [
-            "class_id",
-            "status"
-          ],
+          "columns": ["class_id", "status"],
           "isUnique": false
         },
         "essay_tasks_creator_idx": {
           "name": "essay_tasks_creator_idx",
-          "columns": [
-            "created_by"
-          ],
+          "columns": ["created_by"],
           "isUnique": false
         },
         "essay_tasks_due_date_idx": {
           "name": "essay_tasks_due_date_idx",
-          "columns": [
-            "due_date"
-          ],
+          "columns": ["due_date"],
           "isUnique": false
         },
         "essay_tasks_stage_idx": {
           "name": "essay_tasks_stage_idx",
-          "columns": [
-            "stage"
-          ],
+          "columns": ["stage"],
           "isUnique": false
         },
         "essay_tasks_stage_type_idx": {
           "name": "essay_tasks_stage_type_idx",
-          "columns": [
-            "stage",
-            "senior_essay_type"
-          ],
+          "columns": ["stage", "senior_essay_type"],
           "isUnique": false
         }
       },
@@ -713,12 +653,8 @@
           "name": "essay_tasks_class_id_classes_id_fk",
           "tableFrom": "essay_tasks",
           "tableTo": "classes",
-          "columnsFrom": [
-            "class_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["class_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -726,12 +662,8 @@
           "name": "essay_tasks_created_by_users_id_fk",
           "tableFrom": "essay_tasks",
           "tableTo": "users",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -905,77 +837,52 @@
       "indexes": {
         "essays_student_idx": {
           "name": "essays_student_idx",
-          "columns": [
-            "student_id"
-          ],
+          "columns": ["student_id"],
           "isUnique": false
         },
         "essays_task_idx": {
           "name": "essays_task_idx",
-          "columns": [
-            "task_id"
-          ],
+          "columns": ["task_id"],
           "isUnique": false
         },
         "essays_status_idx": {
           "name": "essays_status_idx",
-          "columns": [
-            "status"
-          ],
+          "columns": ["status"],
           "isUnique": false
         },
         "essays_score_tier_idx": {
           "name": "essays_score_tier_idx",
-          "columns": [
-            "score_tier"
-          ],
+          "columns": ["score_tier"],
           "isUnique": false
         },
         "essays_stage_idx": {
           "name": "essays_stage_idx",
-          "columns": [
-            "stage"
-          ],
+          "columns": ["stage"],
           "isUnique": false
         },
         "essays_student_status_idx": {
           "name": "essays_student_status_idx",
-          "columns": [
-            "student_id",
-            "status"
-          ],
+          "columns": ["student_id", "status"],
           "isUnique": false
         },
         "essays_student_submitted_idx": {
           "name": "essays_student_submitted_idx",
-          "columns": [
-            "student_id",
-            "submitted_at"
-          ],
+          "columns": ["student_id", "submitted_at"],
           "isUnique": false
         },
         "essays_task_status_idx": {
           "name": "essays_task_status_idx",
-          "columns": [
-            "task_id",
-            "status"
-          ],
+          "columns": ["task_id", "status"],
           "isUnique": false
         },
         "essays_status_submitted_idx": {
           "name": "essays_status_submitted_idx",
-          "columns": [
-            "status",
-            "submitted_at"
-          ],
+          "columns": ["status", "submitted_at"],
           "isUnique": false
         },
         "essays_stage_status_idx": {
           "name": "essays_stage_status_idx",
-          "columns": [
-            "stage",
-            "status"
-          ],
+          "columns": ["stage", "status"],
           "isUnique": false
         }
       },
@@ -984,12 +891,8 @@
           "name": "essays_task_id_essay_tasks_id_fk",
           "tableFrom": "essays",
           "tableTo": "essay_tasks",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -997,12 +900,8 @@
           "name": "essays_student_id_users_id_fk",
           "tableFrom": "essays",
           "tableTo": "users",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1171,30 +1070,22 @@
       "indexes": {
         "corrections_essay_idx": {
           "name": "corrections_essay_idx",
-          "columns": [
-            "essay_id"
-          ],
+          "columns": ["essay_id"],
           "isUnique": false
         },
         "corrections_score_tier_idx": {
           "name": "corrections_score_tier_idx",
-          "columns": [
-            "score_tier"
-          ],
+          "columns": ["score_tier"],
           "isUnique": false
         },
         "corrections_created_at_idx": {
           "name": "corrections_created_at_idx",
-          "columns": [
-            "created_at"
-          ],
+          "columns": ["created_at"],
           "isUnique": false
         },
         "corrections_stage_idx": {
           "name": "corrections_stage_idx",
-          "columns": [
-            "stage"
-          ],
+          "columns": ["stage"],
           "isUnique": false
         }
       },
@@ -1203,12 +1094,8 @@
           "name": "corrections_essay_id_essays_id_fk",
           "tableFrom": "corrections",
           "tableTo": "essays",
-          "columnsFrom": [
-            "essay_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["essay_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1301,23 +1188,17 @@
       "indexes": {
         "api_call_logs_created_idx": {
           "name": "api_call_logs_created_idx",
-          "columns": [
-            "created_at"
-          ],
+          "columns": ["created_at"],
           "isUnique": false
         },
         "api_call_logs_endpoint_idx": {
           "name": "api_call_logs_endpoint_idx",
-          "columns": [
-            "endpoint"
-          ],
+          "columns": ["endpoint"],
           "isUnique": false
         },
         "api_call_logs_status_idx": {
           "name": "api_call_logs_status_idx",
-          "columns": [
-            "status"
-          ],
+          "columns": ["status"],
           "isUnique": false
         }
       },
@@ -1326,12 +1207,8 @@
           "name": "api_call_logs_essay_id_essays_id_fk",
           "tableFrom": "api_call_logs",
           "tableTo": "essays",
-          "columnsFrom": [
-            "essay_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["essay_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1436,16 +1313,12 @@
       "indexes": {
         "api_configs_provider_idx": {
           "name": "api_configs_provider_idx",
-          "columns": [
-            "provider"
-          ],
+          "columns": ["provider"],
           "isUnique": false
         },
         "api_configs_active_idx": {
           "name": "api_configs_active_idx",
-          "columns": [
-            "is_active"
-          ],
+          "columns": ["is_active"],
           "isUnique": false
         }
       },
@@ -1510,18 +1383,12 @@
       "indexes": {
         "model_routes_config_idx": {
           "name": "model_routes_config_idx",
-          "columns": [
-            "api_config_id"
-          ],
+          "columns": ["api_config_id"],
           "isUnique": false
         },
         "model_routes_stage_unique_idx": {
           "name": "model_routes_stage_unique_idx",
-          "columns": [
-            "stage",
-            "route_stage",
-            "senior_essay_type"
-          ],
+          "columns": ["stage", "route_stage", "senior_essay_type"],
           "isUnique": false
         }
       },
@@ -1530,12 +1397,8 @@
           "name": "model_routes_api_config_id_api_configs_id_fk",
           "tableFrom": "model_routes",
           "tableTo": "api_configs",
-          "columnsFrom": [
-            "api_config_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["api_config_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1637,16 +1500,12 @@
       "indexes": {
         "model_essay_imitations_resource_idx": {
           "name": "model_essay_imitations_resource_idx",
-          "columns": [
-            "resource_id"
-          ],
+          "columns": ["resource_id"],
           "isUnique": false
         },
         "model_essay_imitations_student_idx": {
           "name": "model_essay_imitations_student_idx",
-          "columns": [
-            "student_id"
-          ],
+          "columns": ["student_id"],
           "isUnique": false
         }
       },
@@ -1655,12 +1514,8 @@
           "name": "model_essay_imitations_resource_id_teaching_resources_id_fk",
           "tableFrom": "model_essay_imitations",
           "tableTo": "teaching_resources",
-          "columnsFrom": [
-            "resource_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["resource_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1668,12 +1523,8 @@
           "name": "model_essay_imitations_student_id_users_id_fk",
           "tableFrom": "model_essay_imitations",
           "tableTo": "users",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1785,23 +1636,17 @@
       "indexes": {
         "teaching_resources_creator_idx": {
           "name": "teaching_resources_creator_idx",
-          "columns": [
-            "created_by"
-          ],
+          "columns": ["created_by"],
           "isUnique": false
         },
         "teaching_resources_type_idx": {
           "name": "teaching_resources_type_idx",
-          "columns": [
-            "type"
-          ],
+          "columns": ["type"],
           "isUnique": false
         },
         "teaching_resources_stage_idx": {
           "name": "teaching_resources_stage_idx",
-          "columns": [
-            "stage"
-          ],
+          "columns": ["stage"],
           "isUnique": false
         }
       },
@@ -1810,12 +1655,8 @@
           "name": "teaching_resources_created_by_users_id_fk",
           "tableFrom": "teaching_resources",
           "tableTo": "users",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1866,16 +1707,12 @@
       "indexes": {
         "student_tags_student_id_unique": {
           "name": "student_tags_student_id_unique",
-          "columns": [
-            "student_id"
-          ],
+          "columns": ["student_id"],
           "isUnique": true
         },
         "student_tags_tag_idx": {
           "name": "student_tags_tag_idx",
-          "columns": [
-            "tag"
-          ],
+          "columns": ["tag"],
           "isUnique": false
         }
       },
@@ -1884,12 +1721,8 @@
           "name": "student_tags_student_id_users_id_fk",
           "tableFrom": "student_tags",
           "tableTo": "users",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1897,12 +1730,8 @@
           "name": "student_tags_updated_by_users_id_fk",
           "tableFrom": "student_tags",
           "tableTo": "users",
-          "columnsFrom": [
-            "updated_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["updated_by"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2019,16 +1848,12 @@
       "indexes": {
         "error_books_student_idx": {
           "name": "error_books_student_idx",
-          "columns": [
-            "student_id"
-          ],
+          "columns": ["student_id"],
           "isUnique": false
         },
         "error_books_essay_idx": {
           "name": "error_books_essay_idx",
-          "columns": [
-            "essay_id"
-          ],
+          "columns": ["essay_id"],
           "isUnique": false
         }
       },
@@ -2037,12 +1862,8 @@
           "name": "error_books_student_id_users_id_fk",
           "tableFrom": "error_books",
           "tableTo": "users",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2050,12 +1871,8 @@
           "name": "error_books_essay_id_essays_id_fk",
           "tableFrom": "error_books",
           "tableTo": "essays",
-          "columnsFrom": [
-            "essay_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["essay_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2063,12 +1880,8 @@
           "name": "error_books_correction_id_corrections_id_fk",
           "tableFrom": "error_books",
           "tableTo": "corrections",
-          "columnsFrom": [
-            "correction_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["correction_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -2217,23 +2030,17 @@
       "indexes": {
         "question_bank_topic_type_idx": {
           "name": "question_bank_topic_type_idx",
-          "columns": [
-            "topic_type"
-          ],
+          "columns": ["topic_type"],
           "isUnique": false
         },
         "question_bank_difficulty_idx": {
           "name": "question_bank_difficulty_idx",
-          "columns": [
-            "difficulty"
-          ],
+          "columns": ["difficulty"],
           "isUnique": false
         },
         "question_bank_stage_idx": {
           "name": "question_bank_stage_idx",
-          "columns": [
-            "stage"
-          ],
+          "columns": ["stage"],
           "isUnique": false
         }
       },
@@ -2371,16 +2178,12 @@
       "indexes": {
         "practice_exercises_student_idx": {
           "name": "practice_exercises_student_idx",
-          "columns": [
-            "student_id"
-          ],
+          "columns": ["student_id"],
           "isUnique": false
         },
         "practice_exercises_stage_idx": {
           "name": "practice_exercises_stage_idx",
-          "columns": [
-            "stage"
-          ],
+          "columns": ["stage"],
           "isUnique": false
         }
       },
@@ -2389,12 +2192,8 @@
           "name": "practice_exercises_student_id_users_id_fk",
           "tableFrom": "practice_exercises",
           "tableTo": "users",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2402,12 +2201,8 @@
           "name": "practice_exercises_question_id_question_bank_id_fk",
           "tableFrom": "practice_exercises",
           "tableTo": "question_bank",
-          "columnsFrom": [
-            "question_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["question_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -2494,9 +2289,7 @@
       "indexes": {
         "ai_conversations_student_idx": {
           "name": "ai_conversations_student_idx",
-          "columns": [
-            "student_id"
-          ],
+          "columns": ["student_id"],
           "isUnique": false
         }
       },
@@ -2505,12 +2298,8 @@
           "name": "ai_conversations_student_id_users_id_fk",
           "tableFrom": "ai_conversations",
           "tableTo": "users",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2589,10 +2378,7 @@
       "indexes": {
         "achievements_student_code_idx": {
           "name": "achievements_student_code_idx",
-          "columns": [
-            "student_id",
-            "code"
-          ],
+          "columns": ["student_id", "code"],
           "isUnique": true
         }
       },
@@ -2601,12 +2387,8 @@
           "name": "achievements_student_id_users_id_fk",
           "tableFrom": "achievements",
           "tableTo": "users",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2671,10 +2453,7 @@
       "indexes": {
         "essay_drafts_student_task_idx": {
           "name": "essay_drafts_student_task_idx",
-          "columns": [
-            "student_id",
-            "task_id"
-          ],
+          "columns": ["student_id", "task_id"],
           "isUnique": true
         }
       },
@@ -2683,12 +2462,8 @@
           "name": "essay_drafts_student_id_users_id_fk",
           "tableFrom": "essay_drafts",
           "tableTo": "users",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2696,12 +2471,8 @@
           "name": "essay_drafts_task_id_essay_tasks_id_fk",
           "tableFrom": "essay_drafts",
           "tableTo": "essay_tasks",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2773,9 +2544,7 @@
       "indexes": {
         "api_tokens_token_idx": {
           "name": "api_tokens_token_idx",
-          "columns": [
-            "token"
-          ],
+          "columns": ["token"],
           "isUnique": true
         }
       },
@@ -2784,12 +2553,8 @@
           "name": "api_tokens_user_id_users_id_fk",
           "tableFrom": "api_tokens",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2847,10 +2612,7 @@
       "indexes": {
         "device_tokens_user_token_idx": {
           "name": "device_tokens_user_token_idx",
-          "columns": [
-            "user_id",
-            "token"
-          ],
+          "columns": ["user_id", "token"],
           "isUnique": true
         }
       },
@@ -2859,12 +2621,8 @@
           "name": "device_tokens_user_id_users_id_fk",
           "tableFrom": "device_tokens",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2938,16 +2696,12 @@
       "indexes": {
         "announcements_target_role_idx": {
           "name": "announcements_target_role_idx",
-          "columns": [
-            "target_role"
-          ],
+          "columns": ["target_role"],
           "isUnique": false
         },
         "announcements_active_idx": {
           "name": "announcements_active_idx",
-          "columns": [
-            "is_active"
-          ],
+          "columns": ["is_active"],
           "isUnique": false
         }
       },
@@ -2956,12 +2710,8 @@
           "name": "announcements_created_by_users_id_fk",
           "tableFrom": "announcements",
           "tableTo": "users",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -3055,24 +2805,17 @@
       "indexes": {
         "essay_versions_essay_idx": {
           "name": "essay_versions_essay_idx",
-          "columns": [
-            "essay_id"
-          ],
+          "columns": ["essay_id"],
           "isUnique": false
         },
         "essay_versions_student_idx": {
           "name": "essay_versions_student_idx",
-          "columns": [
-            "student_id"
-          ],
+          "columns": ["student_id"],
           "isUnique": false
         },
         "essay_versions_essay_version_idx": {
           "name": "essay_versions_essay_version_idx",
-          "columns": [
-            "essay_id",
-            "version_number"
-          ],
+          "columns": ["essay_id", "version_number"],
           "isUnique": false
         }
       },
@@ -3081,12 +2824,8 @@
           "name": "essay_versions_essay_id_essays_id_fk",
           "tableFrom": "essay_versions",
           "tableTo": "essays",
-          "columnsFrom": [
-            "essay_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["essay_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3094,12 +2833,8 @@
           "name": "essay_versions_student_id_users_id_fk",
           "tableFrom": "essay_versions",
           "tableTo": "users",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3193,24 +2928,17 @@
       "indexes": {
         "micro_attempts_student_idx": {
           "name": "micro_attempts_student_idx",
-          "columns": [
-            "student_id"
-          ],
+          "columns": ["student_id"],
           "isUnique": false
         },
         "micro_attempts_exercise_idx": {
           "name": "micro_attempts_exercise_idx",
-          "columns": [
-            "exercise_id"
-          ],
+          "columns": ["exercise_id"],
           "isUnique": false
         },
         "micro_attempts_student_skill_idx": {
           "name": "micro_attempts_student_skill_idx",
-          "columns": [
-            "student_id",
-            "skill_id"
-          ],
+          "columns": ["student_id", "skill_id"],
           "isUnique": false
         }
       },
@@ -3219,12 +2947,8 @@
           "name": "micro_exercise_attempts_student_id_users_id_fk",
           "tableFrom": "micro_exercise_attempts",
           "tableTo": "users",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3232,12 +2956,8 @@
           "name": "micro_exercise_attempts_exercise_id_micro_exercises_id_fk",
           "tableFrom": "micro_exercise_attempts",
           "tableTo": "micro_exercises",
-          "columnsFrom": [
-            "exercise_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["exercise_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3245,12 +2965,8 @@
           "name": "micro_exercise_attempts_skill_id_micro_skills_id_fk",
           "tableFrom": "micro_exercise_attempts",
           "tableTo": "micro_skills",
-          "columnsFrom": [
-            "skill_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["skill_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3352,17 +3068,12 @@
       "indexes": {
         "micro_exercises_skill_idx": {
           "name": "micro_exercises_skill_idx",
-          "columns": [
-            "skill_id"
-          ],
+          "columns": ["skill_id"],
           "isUnique": false
         },
         "micro_exercises_skill_level_idx": {
           "name": "micro_exercises_skill_level_idx",
-          "columns": [
-            "skill_id",
-            "level"
-          ],
+          "columns": ["skill_id", "level"],
           "isUnique": false
         }
       },
@@ -3371,12 +3082,8 @@
           "name": "micro_exercises_skill_id_micro_skills_id_fk",
           "tableFrom": "micro_exercises",
           "tableTo": "micro_skills",
-          "columnsFrom": [
-            "skill_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["skill_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3451,17 +3158,12 @@
       "indexes": {
         "micro_progress_student_skill_idx": {
           "name": "micro_progress_student_skill_idx",
-          "columns": [
-            "student_id",
-            "skill_id"
-          ],
+          "columns": ["student_id", "skill_id"],
           "isUnique": false
         },
         "micro_progress_student_idx": {
           "name": "micro_progress_student_idx",
-          "columns": [
-            "student_id"
-          ],
+          "columns": ["student_id"],
           "isUnique": false
         }
       },
@@ -3470,12 +3172,8 @@
           "name": "micro_skill_progress_student_id_users_id_fk",
           "tableFrom": "micro_skill_progress",
           "tableTo": "users",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3483,12 +3181,8 @@
           "name": "micro_skill_progress_skill_id_micro_skills_id_fk",
           "tableFrom": "micro_skill_progress",
           "tableTo": "micro_skills",
-          "columnsFrom": [
-            "skill_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["skill_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3584,23 +3278,17 @@
       "indexes": {
         "micro_skills_code_unique": {
           "name": "micro_skills_code_unique",
-          "columns": [
-            "code"
-          ],
+          "columns": ["code"],
           "isUnique": true
         },
         "micro_skills_category_idx": {
           "name": "micro_skills_category_idx",
-          "columns": [
-            "category"
-          ],
+          "columns": ["category"],
           "isUnique": false
         },
         "micro_skills_difficulty_idx": {
           "name": "micro_skills_difficulty_idx",
-          "columns": [
-            "difficulty"
-          ],
+          "columns": ["difficulty"],
           "isUnique": false
         }
       },
@@ -3705,31 +3393,22 @@
       "indexes": {
         "writing_sessions_student_idx": {
           "name": "writing_sessions_student_idx",
-          "columns": [
-            "student_id"
-          ],
+          "columns": ["student_id"],
           "isUnique": false
         },
         "writing_sessions_class_idx": {
           "name": "writing_sessions_class_idx",
-          "columns": [
-            "class_id"
-          ],
+          "columns": ["class_id"],
           "isUnique": false
         },
         "writing_sessions_task_idx": {
           "name": "writing_sessions_task_idx",
-          "columns": [
-            "task_id"
-          ],
+          "columns": ["task_id"],
           "isUnique": false
         },
         "writing_sessions_class_status_idx": {
           "name": "writing_sessions_class_status_idx",
-          "columns": [
-            "class_id",
-            "status"
-          ],
+          "columns": ["class_id", "status"],
           "isUnique": false
         }
       },
@@ -3738,12 +3417,8 @@
           "name": "writing_sessions_student_id_users_id_fk",
           "tableFrom": "writing_sessions",
           "tableTo": "users",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3751,12 +3426,8 @@
           "name": "writing_sessions_task_id_essay_tasks_id_fk",
           "tableFrom": "writing_sessions",
           "tableTo": "essay_tasks",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -3764,12 +3435,8 @@
           "name": "writing_sessions_class_id_classes_id_fk",
           "tableFrom": "writing_sessions",
           "tableTo": "classes",
-          "columnsFrom": [
-            "class_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["class_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3896,24 +3563,17 @@
       "indexes": {
         "weekly_reports_student_idx": {
           "name": "weekly_reports_student_idx",
-          "columns": [
-            "student_id"
-          ],
+          "columns": ["student_id"],
           "isUnique": false
         },
         "weekly_reports_week_idx": {
           "name": "weekly_reports_week_idx",
-          "columns": [
-            "week_start"
-          ],
+          "columns": ["week_start"],
           "isUnique": false
         },
         "weekly_reports_student_week_idx": {
           "name": "weekly_reports_student_week_idx",
-          "columns": [
-            "student_id",
-            "week_start"
-          ],
+          "columns": ["student_id", "week_start"],
           "isUnique": false
         }
       },
@@ -3922,12 +3582,8 @@
           "name": "weekly_reports_student_id_users_id_fk",
           "tableFrom": "weekly_reports",
           "tableTo": "users",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -4031,23 +3687,17 @@
       "indexes": {
         "similarity_checks_essay_idx": {
           "name": "similarity_checks_essay_idx",
-          "columns": [
-            "essay_id"
-          ],
+          "columns": ["essay_id"],
           "isUnique": false
         },
         "similarity_checks_student_idx": {
           "name": "similarity_checks_student_idx",
-          "columns": [
-            "student_id"
-          ],
+          "columns": ["student_id"],
           "isUnique": false
         },
         "similarity_checks_risk_idx": {
           "name": "similarity_checks_risk_idx",
-          "columns": [
-            "risk_level"
-          ],
+          "columns": ["risk_level"],
           "isUnique": false
         }
       },
@@ -4056,12 +3706,8 @@
           "name": "similarity_checks_essay_id_essays_id_fk",
           "tableFrom": "similarity_checks",
           "tableTo": "essays",
-          "columnsFrom": [
-            "essay_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["essay_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4069,12 +3715,8 @@
           "name": "similarity_checks_student_id_users_id_fk",
           "tableFrom": "similarity_checks",
           "tableTo": "users",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -4139,17 +3781,12 @@
       "indexes": {
         "resource_comments_resource_idx": {
           "name": "resource_comments_resource_idx",
-          "columns": [
-            "resource_id",
-            "resource_type"
-          ],
+          "columns": ["resource_id", "resource_type"],
           "isUnique": false
         },
         "resource_comments_author_idx": {
           "name": "resource_comments_author_idx",
-          "columns": [
-            "author_id"
-          ],
+          "columns": ["author_id"],
           "isUnique": false
         }
       },
@@ -4158,12 +3795,8 @@
           "name": "resource_comments_author_id_users_id_fk",
           "tableFrom": "resource_comments",
           "tableTo": "users",
-          "columnsFrom": [
-            "author_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["author_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -4228,26 +3861,17 @@
       "indexes": {
         "resource_ratings_resource_idx": {
           "name": "resource_ratings_resource_idx",
-          "columns": [
-            "resource_id",
-            "resource_type"
-          ],
+          "columns": ["resource_id", "resource_type"],
           "isUnique": false
         },
         "resource_ratings_rater_idx": {
           "name": "resource_ratings_rater_idx",
-          "columns": [
-            "rater_id"
-          ],
+          "columns": ["rater_id"],
           "isUnique": false
         },
         "resource_ratings_unique_idx": {
           "name": "resource_ratings_unique_idx",
-          "columns": [
-            "resource_id",
-            "resource_type",
-            "rater_id"
-          ],
+          "columns": ["resource_id", "resource_type", "rater_id"],
           "isUnique": true
         }
       },
@@ -4256,12 +3880,8 @@
           "name": "resource_ratings_rater_id_users_id_fk",
           "tableFrom": "resource_ratings",
           "tableTo": "users",
-          "columnsFrom": [
-            "rater_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["rater_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -4366,24 +3986,17 @@
       "indexes": {
         "learning_paths_student_idx": {
           "name": "learning_paths_student_idx",
-          "columns": [
-            "student_id"
-          ],
+          "columns": ["student_id"],
           "isUnique": false
         },
         "learning_paths_week_idx": {
           "name": "learning_paths_week_idx",
-          "columns": [
-            "week_start"
-          ],
+          "columns": ["week_start"],
           "isUnique": false
         },
         "learning_paths_student_week_idx": {
           "name": "learning_paths_student_week_idx",
-          "columns": [
-            "student_id",
-            "week_start"
-          ],
+          "columns": ["student_id", "week_start"],
           "isUnique": false
         }
       },
@@ -4392,12 +4005,8 @@
           "name": "learning_paths_student_id_users_id_fk",
           "tableFrom": "learning_paths",
           "tableTo": "users",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -4508,23 +4117,17 @@
       "indexes": {
         "exam_history_year_idx": {
           "name": "exam_history_year_idx",
-          "columns": [
-            "year"
-          ],
+          "columns": ["year"],
           "isUnique": false
         },
         "exam_history_topic_type_idx": {
           "name": "exam_history_topic_type_idx",
-          "columns": [
-            "topic_type"
-          ],
+          "columns": ["topic_type"],
           "isUnique": false
         },
         "exam_history_topic_category_idx": {
           "name": "exam_history_topic_category_idx",
-          "columns": [
-            "topic_category"
-          ],
+          "columns": ["topic_category"],
           "isUnique": false
         }
       },
@@ -4627,31 +4230,22 @@
       "indexes": {
         "notification_logs_user_idx": {
           "name": "notification_logs_user_idx",
-          "columns": [
-            "user_id"
-          ],
+          "columns": ["user_id"],
           "isUnique": false
         },
         "notification_logs_type_idx": {
           "name": "notification_logs_type_idx",
-          "columns": [
-            "type"
-          ],
+          "columns": ["type"],
           "isUnique": false
         },
         "notification_logs_user_read_idx": {
           "name": "notification_logs_user_read_idx",
-          "columns": [
-            "user_id",
-            "is_read"
-          ],
+          "columns": ["user_id", "is_read"],
           "isUnique": false
         },
         "notification_logs_created_at_idx": {
           "name": "notification_logs_created_at_idx",
-          "columns": [
-            "created_at"
-          ],
+          "columns": ["created_at"],
           "isUnique": false
         }
       },
@@ -4660,12 +4254,8 @@
           "name": "notification_logs_user_id_users_id_fk",
           "tableFrom": "notification_logs",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -4767,24 +4357,17 @@
       "indexes": {
         "challenge_submissions_challenge_idx": {
           "name": "challenge_submissions_challenge_idx",
-          "columns": [
-            "challenge_id"
-          ],
+          "columns": ["challenge_id"],
           "isUnique": false
         },
         "challenge_submissions_student_idx": {
           "name": "challenge_submissions_student_idx",
-          "columns": [
-            "student_id"
-          ],
+          "columns": ["student_id"],
           "isUnique": false
         },
         "challenge_submissions_student_date_idx": {
           "name": "challenge_submissions_student_date_idx",
-          "columns": [
-            "student_id",
-            "submitted_at"
-          ],
+          "columns": ["student_id", "submitted_at"],
           "isUnique": false
         }
       },
@@ -4793,12 +4376,8 @@
           "name": "challenge_submissions_challenge_id_daily_challenges_id_fk",
           "tableFrom": "challenge_submissions",
           "tableTo": "daily_challenges",
-          "columnsFrom": [
-            "challenge_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["challenge_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4806,12 +4385,8 @@
           "name": "challenge_submissions_student_id_users_id_fk",
           "tableFrom": "challenge_submissions",
           "tableTo": "users",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -4936,24 +4511,17 @@
       "indexes": {
         "daily_challenges_date_idx": {
           "name": "daily_challenges_date_idx",
-          "columns": [
-            "challenge_date"
-          ],
+          "columns": ["challenge_date"],
           "isUnique": false
         },
         "daily_challenges_stage_idx": {
           "name": "daily_challenges_stage_idx",
-          "columns": [
-            "stage"
-          ],
+          "columns": ["stage"],
           "isUnique": false
         },
         "daily_challenges_date_stage_idx": {
           "name": "daily_challenges_date_stage_idx",
-          "columns": [
-            "challenge_date",
-            "stage"
-          ],
+          "columns": ["challenge_date", "stage"],
           "isUnique": false
         }
       },
@@ -4997,24 +4565,17 @@
       "indexes": {
         "student_material_favorites_student_idx": {
           "name": "student_material_favorites_student_idx",
-          "columns": [
-            "student_id"
-          ],
+          "columns": ["student_id"],
           "isUnique": false
         },
         "student_material_favorites_material_idx": {
           "name": "student_material_favorites_material_idx",
-          "columns": [
-            "material_id"
-          ],
+          "columns": ["material_id"],
           "isUnique": false
         },
         "student_material_favorites_unique_idx": {
           "name": "student_material_favorites_unique_idx",
-          "columns": [
-            "student_id",
-            "material_id"
-          ],
+          "columns": ["student_id", "material_id"],
           "isUnique": false
         }
       },
@@ -5023,12 +4584,8 @@
           "name": "student_material_favorites_student_id_users_id_fk",
           "tableFrom": "student_material_favorites",
           "tableTo": "users",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -5036,12 +4593,8 @@
           "name": "student_material_favorites_material_id_writing_materials_id_fk",
           "tableFrom": "student_material_favorites",
           "tableTo": "writing_materials",
-          "columnsFrom": [
-            "material_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["material_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -5167,44 +4720,32 @@
       "indexes": {
         "writing_materials_type_idx": {
           "name": "writing_materials_type_idx",
-          "columns": [
-            "type"
-          ],
+          "columns": ["type"],
           "isUnique": false
         },
         "writing_materials_stage_idx": {
           "name": "writing_materials_stage_idx",
-          "columns": [
-            "stage"
-          ],
+          "columns": ["stage"],
           "isUnique": false
         },
         "writing_materials_topic_idx": {
           "name": "writing_materials_topic_idx",
-          "columns": [
-            "topic_type"
-          ],
+          "columns": ["topic_type"],
           "isUnique": false
         },
         "writing_materials_public_idx": {
           "name": "writing_materials_public_idx",
-          "columns": [
-            "is_public"
-          ],
+          "columns": ["is_public"],
           "isUnique": false
         },
         "writing_materials_creator_idx": {
           "name": "writing_materials_creator_idx",
-          "columns": [
-            "created_by"
-          ],
+          "columns": ["created_by"],
           "isUnique": false
         },
         "writing_materials_school_idx": {
           "name": "writing_materials_school_idx",
-          "columns": [
-            "school_id"
-          ],
+          "columns": ["school_id"],
           "isUnique": false
         }
       },
@@ -5213,12 +4754,8 @@
           "name": "writing_materials_created_by_users_id_fk",
           "tableFrom": "writing_materials",
           "tableTo": "users",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -5226,12 +4763,8 @@
           "name": "writing_materials_school_id_schools_id_fk",
           "tableFrom": "writing_materials",
           "tableTo": "schools",
-          "columnsFrom": [
-            "school_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["school_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -5337,16 +4870,12 @@
       "indexes": {
         "essay_peer_review_configs_task_idx": {
           "name": "essay_peer_review_configs_task_idx",
-          "columns": [
-            "task_id"
-          ],
+          "columns": ["task_id"],
           "isUnique": false
         },
         "essay_peer_review_configs_creator_idx": {
           "name": "essay_peer_review_configs_creator_idx",
-          "columns": [
-            "created_by"
-          ],
+          "columns": ["created_by"],
           "isUnique": false
         }
       },
@@ -5355,12 +4884,8 @@
           "name": "essay_peer_review_configs_task_id_essay_tasks_id_fk",
           "tableFrom": "essay_peer_review_configs",
           "tableTo": "essay_tasks",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -5368,12 +4893,8 @@
           "name": "essay_peer_review_configs_created_by_users_id_fk",
           "tableFrom": "essay_peer_review_configs",
           "tableTo": "users",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -5489,31 +5010,22 @@
       "indexes": {
         "peer_reviews_essay_idx": {
           "name": "peer_reviews_essay_idx",
-          "columns": [
-            "essay_id"
-          ],
+          "columns": ["essay_id"],
           "isUnique": false
         },
         "peer_reviews_reviewer_idx": {
           "name": "peer_reviews_reviewer_idx",
-          "columns": [
-            "reviewer_id"
-          ],
+          "columns": ["reviewer_id"],
           "isUnique": false
         },
         "peer_reviews_status_idx": {
           "name": "peer_reviews_status_idx",
-          "columns": [
-            "status"
-          ],
+          "columns": ["status"],
           "isUnique": false
         },
         "peer_reviews_unique_idx": {
           "name": "peer_reviews_unique_idx",
-          "columns": [
-            "essay_id",
-            "reviewer_id"
-          ],
+          "columns": ["essay_id", "reviewer_id"],
           "isUnique": false
         }
       },
@@ -5522,12 +5034,8 @@
           "name": "peer_reviews_essay_id_essays_id_fk",
           "tableFrom": "peer_reviews",
           "tableTo": "essays",
-          "columnsFrom": [
-            "essay_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["essay_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -5535,12 +5043,8 @@
           "name": "peer_reviews_reviewer_id_users_id_fk",
           "tableFrom": "peer_reviews",
           "tableTo": "users",
-          "columnsFrom": [
-            "reviewer_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["reviewer_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
