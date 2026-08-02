@@ -1,6 +1,7 @@
 import { Stack, useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { usePushNotifications } from '../hooks/use-push-notifications';
 import { useAuth } from '../lib/auth/store';
 import { useTheme } from '../theme/dark-mode';
 
@@ -8,6 +9,8 @@ export default function RootLayout() {
   const { colors } = useTheme();
   const router = useRouter();
   const { user, isHydrated, restoreSession } = useAuth();
+
+  usePushNotifications();
 
   useEffect(() => {
     void restoreSession();

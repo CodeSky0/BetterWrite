@@ -3,9 +3,12 @@ import type {
   AiAssistantResult,
   AiConversation,
   AuthUserResponse,
+  ChallengeStreak,
+  ChallengeSubmission,
   ClassAnalytics,
   Correction,
   CorrectionDetail,
+  DailyChallenge,
   DailyQuote,
   ErrorBookGroup,
   ErrorBookItem,
@@ -13,6 +16,9 @@ import type {
   EssayDraft,
   EssayTask,
   ImportResult,
+  PeerReview,
+  PeerReviewSummary,
+  PeerReviewWithEssay,
   PracticeExercise,
   QuestionBankItem,
   StudentAnalytics,
@@ -20,6 +26,7 @@ import type {
   StudentListItem,
   StudentProgress,
   TeachingResourceWithCreator,
+  WritingMaterial,
 } from '@betterwrite/shared';
 import type { ApiResponse } from './client';
 import { request } from './client';
@@ -401,4 +408,136 @@ export const fetcher = {
     }),
   deleteDraft: (taskId: string) =>
     request<ApiResponse<null>>(`/api/student/drafts/${taskId}`, { method: 'DELETE' }),
+
+  // ========== Feature 10: Daily Writing Challenge ==========
+  getDailyChallengeToday: () =>
+    request<
+      ApiResponse<{
+        challenge: DailyChallenge;
+        submission: ChallengeSubmission | null;
+        streak: number;
+      }>
+    >('/api/daily-challenges/today'),
+  submitDailyChallenge: (challengeId: string, data: { content: string; durationMs?: number }) =>
+    request<
+      ApiResponse<{
+        submissionId: string;
+        score: number;
+        scoreTier: string;
+        feedback: string;
+        streakDays: number;
+      }>
+    >(`/api/daily-challenges/${challengeId}/submit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getDailyChallengeStreak: () =>
+    request<ApiResponse<ChallengeStreak & { totalSubmissions: number }>>(
+      '/api/daily-challenges/streak',
+    ),
+
+  // ========== Feature 11: Writing Material Library ==========
+  getWritingMaterials: (params?: {
+    type?: string;
+    topicType?: string;
+    stage?: string;
+    difficulty?: string;
+    keyword?: string;
+    page?: number;
+    pageSize?: number;
+  }) =>
+    request<
+      ApiResponse<{
+        list: WritingMaterial[];
+        total: number;
+        page: number;
+        pageSize: number;
+      }>
+    >(
+      `/api/writing-materials?${new URLSearchParams({
+        ...(params?.type ? { type: params.type } : {}),
+        ...(params?.topicType ? { topicType: params.topicType } : {}),
+        ...(params?.stage ? { stage: params.stage } : {}),
+        ...(params?.difficulty ? { difficulty: params.difficulty } : {}),
+        ...(params?.keyword ? { keyword: params.keyword } : {}),
+        page: String(params?.page ?? 1),
+        pageSize: String(params?.pageSize ?? 20),
+      }).toString()}`,
+    ),
+
+  getWritingMaterial: (id: string) =>
+    request<ApiResponse<WritingMaterial>>(`/api/writing-materials/${id}`),
+
+  createWritingMaterial: (data: {
+    type: string;
+    title: string;
+    content: string;
+    topicType?: string;
+    stage?: string;
+    difficulty: string;
+    tags?: string[];
+    source?: string;
+    isPublic?: boolean;
+  }) =>
+    request<ApiResponse<WritingMaterial>>('/api/writing-materials', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateWritingMaterial: (
+    id: string,
+    data: Partial<{
+      type: string;
+      title: string;
+      content: string;
+      topicType?: string;
+      stage?: string;
+      difficulty: string;
+      tags?: string[];
+      source?: string;
+      isPublic?: boolean;
+    }>,
+  ) =>
+    request<ApiResponse<WritingMaterial>>(`/api/writing-materials/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteWritingMaterial: (id: string) =>
+    request<ApiResponse<null>>(`/api/writing-materials/${id}`, { method: 'DELETE' }),
+
+  favoriteWritingMaterial: (id: string) =>
+    request<ApiResponse<{ isFavorited: boolean }>>(`/api/writing-materials/${id}/favorite`, {
+      method: 'POST',
+    }),
+
+  unfavoriteWritingMaterial: (id: string) =>
+    request<ApiResponse<{ isFavorited: boolean }>>(`/api/writing-materials/${id}/favorite`, {
+      method: 'DELETE',
+    }),
+
+  // ========== Feature 12: Peer Review ==========
+  getPendingPeerReviews: () =>
+    request<ApiResponse<PeerReviewWithEssay[]>>('/api/peer-reviews/pending'),
+
+  getMyEssayPeerReviews: (essayId: string) =>
+    request<ApiResponse<{ reviews: PeerReview[]; summary: PeerReviewSummary }>>(
+      `/api/peer-reviews/my-essay/${essayId}`,
+    ),
+
+  submitPeerReview: (
+    id: string,
+    data: {
+      contentScore: number;
+      languageScore: number;
+      structureScore: number;
+      handwritingScore: number;
+      comment?: string;
+      answers?: Array<{ questionId: string; answer: string }>;
+    },
+  ) =>
+    request<ApiResponse<PeerReview>>(`/api/peer-reviews/${id}/submit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 };

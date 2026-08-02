@@ -11,6 +11,7 @@ interface CacheEntry<T> {
 
 const memoryStore = new Map<string, CacheEntry<unknown>>();
 
+// Bug #PERF-4.1: 缩短清理间隔为 30 秒，更快释放过期缓存内存
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of memoryStore) {
@@ -18,7 +19,7 @@ setInterval(() => {
       memoryStore.delete(key);
     }
   }
-}, 60_000).unref();
+}, 30_000).unref();
 
 export async function memoizeAsync<T>(
   key: string,
@@ -60,6 +61,9 @@ export async function memoizeAsync<T>(
   return value;
 }
 
+// Bug #PERF-4.2: 添加带标签的缓存，支持按标签批量失效
+const keyTagsMap = new Map<string, Set<string>>(); // tag -> set of keys
+
 async function deleteRedisKeysByPrefix(redis: Redis, prefix: string): Promise<void> {
   const pattern = `${prefix}*`;
   let cursor = '0';
@@ -85,4 +89,38 @@ export function invalidateCache(prefix: string): void {
       memoryStore.delete(key);
     }
   }
+}
+
+export function memoizeWithTags<T>(
+  key: string,
+  tags: string[],
+  ttlMs: number,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const result = memoizeAsync(key, ttlMs, fn);
+
+  // 记录 key 与 tag 的关联
+  result
+    .then(() => {
+      for (const tag of tags) {
+        if (!keyTagsMap.has(tag)) {
+          keyTagsMap.set(tag, new Set());
+        }
+        keyTagsMap.get(tag)?.add(key);
+      }
+    })
+    .catch(() => {}); // ignore errors
+
+  return result;
+}
+
+export function invalidateCacheByTag(tag: string): void {
+  const keys = keyTagsMap.get(tag);
+  if (!keys || keys.size === 0) return;
+
+  // 失效所有关联的 key
+  for (const key of keys) {
+    invalidateCache(key);
+  }
+  keyTagsMap.delete(tag);
 }

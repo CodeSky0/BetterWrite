@@ -1,6 +1,9 @@
 export const CORRECTION_QUEUE = 'essay-corrections';
 export const CORRECTION_JOB = 'correct';
 
+export const MODEL_ESSAY_IMITATION_QUEUE = 'model-essay-imitation-corrections';
+export const MODEL_ESSAY_IMITATION_JOB = 'correct-imitation';
+
 // AI 配置热更新通知频道：web 端增删改 api_configs / model_routes 后 publish 一条消息，
 // worker 订阅该频道并重新从 DB 加载 provider 配置，无需重启进程即可生效。
 export const API_CONFIG_UPDATED_CHANNEL = 'betterwrite:api-config-updated';
@@ -15,6 +18,10 @@ export interface CorrectionJobData {
   priority?: 'high' | 'normal' | 'low';
   studentId?: string; // For deduplication
   submittedAt?: string; // For time-based prioritization
+}
+
+export interface ModelEssayImitationJobData {
+  imitationId: string;
 }
 
 export interface QueueStats {

@@ -81,7 +81,7 @@ export default function FreeWritingPage() {
   return (
     <RoleGuard allowedRoles={[UserRole.STUDENT]}>
       <DashboardLayout>
-        <div className="max-w-4xl mx-auto space-y-6">
+        <div className="max-w-7xl mx-auto space-y-6">
           {/* Sticky Header with Word Count */}
           <div className="sticky top-0 z-10 bg-paper/95 backdrop-blur-sm border-b border-border pb-4 -mx-6 px-6 pt-2">
             <div className="flex items-start justify-between">

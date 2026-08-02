@@ -61,7 +61,7 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
   try {
     res = await fetch(url, { ...options, headers, signal: controller.signal });
   } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
+    if (err instanceof Error && err.name === 'AbortError') {
       throw new Error('请求超时,请检查网络后重试');
     }
     console.error(`[APIClient] network error path=${path}`, err);

@@ -1,5 +1,6 @@
 'use client';
 
+import { NotificationCenter } from '@/components/layout/notification-center';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { Button } from '@/components/ui/button';
 import type { AuthUser } from '@/lib/auth-store';
@@ -10,6 +11,7 @@ import {
   BarChart3,
   BookOpen,
   FileText,
+  Flame,
   LayoutDashboard,
   Library,
   LogOut,
@@ -109,9 +111,39 @@ const navItems: NavItem[] = [
     roles: [UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN],
   },
   {
+    href: '/teacher/model-essays/statistics',
+    label: '范文统计',
+    icon: <BarChart3 className="w-4 h-4" />,
+    roles: [UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN],
+  },
+  {
+    href: '/teacher/materials',
+    label: '写作素材',
+    icon: <Library className="w-4 h-4" />,
+    roles: [UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN],
+  },
+  {
+    href: '/teacher/daily-challenges',
+    label: '每日挑战',
+    icon: <Flame className="w-4 h-4" />,
+    roles: [UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN],
+  },
+  {
+    href: '/teacher/peer-review',
+    label: '同伴互评',
+    icon: <Users className="w-4 h-4" />,
+    roles: [UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN],
+  },
+  {
     href: '/student/dashboard',
     label: '学习首页',
     icon: <LayoutDashboard className="w-4 h-4" />,
+    roles: [UserRole.STUDENT],
+  },
+  {
+    href: '/student/daily-challenge',
+    label: '每日挑战',
+    icon: <Flame className="w-4 h-4" />,
     roles: [UserRole.STUDENT],
   },
   {
@@ -123,6 +155,12 @@ const navItems: NavItem[] = [
   {
     href: '/student/essays',
     label: '我的作文',
+    icon: <BookOpen className="w-4 h-4" />,
+    roles: [UserRole.STUDENT],
+  },
+  {
+    href: '/student/model-essays',
+    label: '范文精读',
     icon: <BookOpen className="w-4 h-4" />,
     roles: [UserRole.STUDENT],
   },
@@ -142,6 +180,18 @@ const navItems: NavItem[] = [
     href: '/student/practice',
     label: '自主练习',
     icon: <Target className="w-4 h-4" />,
+    roles: [UserRole.STUDENT],
+  },
+  {
+    href: '/student/materials',
+    label: '写作素材',
+    icon: <Library className="w-4 h-4" />,
+    roles: [UserRole.STUDENT],
+  },
+  {
+    href: '/student/peer-review',
+    label: '同伴互评',
+    icon: <Users className="w-4 h-4" />,
     roles: [UserRole.STUDENT],
   },
   {
@@ -215,7 +265,10 @@ export function DashboardLayout({ children, user: userProp }: DashboardLayoutPro
               <p className="text-copy-14 font-medium text-neutral-10">{user?.name}</p>
               <p className="text-label-12 text-neutral-7">{user ? roleLabels[user.role] : ''}</p>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-1">
+              <NotificationCenter />
+              <ThemeToggle />
+            </div>
           </div>
           <Button variant="secondary" size="sm" className="w-full" onClick={handleLogout}>
             <LogOut className="w-4 h-4 mr-2" />
@@ -231,6 +284,7 @@ export function DashboardLayout({ children, user: userProp }: DashboardLayoutPro
             BetterWrite
           </Link>
           <div className="flex items-center gap-1">
+            <NotificationCenter />
             <ThemeToggle />
             <Button variant="ghost" size="icon" onClick={() => setMobileOpen(!mobileOpen)}>
               {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}

@@ -3,6 +3,7 @@ import { index, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core
 import { classes } from './classes.js';
 import { corrections } from './corrections.js';
 import { errorBooks } from './error-books.js';
+import { peerReviews } from './peer-reviews.js';
 import { users } from './users.js';
 
 export const essayTasks = sqliteTable(
@@ -101,6 +102,10 @@ export const essayTasksRelations = relations(essayTasks, ({ one }) => ({
     fields: [essayTasks.createdBy],
     references: [users.id],
   }),
+  class: one(classes, {
+    fields: [essayTasks.classId],
+    references: [classes.id],
+  }),
 }));
 
 export const essaysRelations = relations(essays, ({ one, many }) => ({
@@ -118,4 +123,5 @@ export const essaysRelations = relations(essays, ({ one, many }) => ({
   }),
   corrections: many(corrections),
   errorBooks: many(errorBooks),
+  peerReviews: many(peerReviews),
 }));

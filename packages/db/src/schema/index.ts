@@ -24,3 +24,7 @@ export * from './similarity-checks.js';
 export * from './resource-ratings.js';
 export * from './learning-paths.js';
 export * from './exam-history.js';
+export * from './notification-logs.js';
+export * from './daily-challenges.js';
+export * from './writing-materials.js';
+export * from './peer-reviews.js';

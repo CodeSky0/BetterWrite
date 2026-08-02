@@ -5,8 +5,9 @@
     "paths": {
       "@/*": ["./src/*"]
     },
-    "jsx": "react-jsx",
-    "types": ["expo-router/types"]
+    "lib": ["ESNext"],
+    "jsx": "react-native",
+    "types": ["react-native", "expo-router/types"]
   },
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules"]

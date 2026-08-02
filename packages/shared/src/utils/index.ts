@@ -1,4 +1,7 @@
+import type { EducationStageValue } from '../constants/essay.js';
+import { getScoreTierByStage } from '../constants/scoring.js';
 import type { ScoreDistribution } from '../types/essay.js';
+import type { PeerReviewWeights } from '../types/features.js';
 
 export function countWords(text: string): number {
   return text
@@ -107,6 +110,8 @@ export function checkAchievements(stats: {
   perfectScores: number;
   consecutiveProgress: number;
   errorFreeEssays: number;
+  challengeStreak?: number;
+  totalChallenges?: number;
 }): string[] {
   const codes: string[] = [];
   if (stats.totalEssays >= 10) codes.push('essay_10');
@@ -118,6 +123,9 @@ export function checkAchievements(stats: {
     codes.push('first_tier_regular');
   }
   if (stats.errorFreeEssays >= 5) codes.push('grammar_master');
+  if ((stats.challengeStreak ?? 0) >= 7) codes.push('challenge_streak_7');
+  if ((stats.challengeStreak ?? 0) >= 30) codes.push('challenge_streak_30');
+  if ((stats.totalChallenges ?? 0) >= 50) codes.push('challenge_master');
   return codes;
 }
 
@@ -126,6 +134,78 @@ export function formatDuration(ms: number): string {
   const min = Math.floor(totalSec / 60);
   const sec = totalSec % 60;
   return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+/**
+ * 将百分制分数归一化到当前学段满分制。
+ * 教师评分与同伴互评均使用 0-100 分输入，最终需与 AI 批改同量纲后加权。
+ */
+export function normalizeToMaxScore(score: number, maxScore: number): number {
+  return (score / 100) * maxScore;
+}
+
+export interface WeightedScoreInput {
+  aiScore?: number | null;
+  teacherScore?: number | null;
+  peerAverage?: number | null;
+  weights: PeerReviewWeights;
+  maxScore: number;
+  stage: EducationStageValue;
+}
+
+/**
+ * 根据 AI、教师、同伴评分权重计算最终总分与档次。
+ * 教师/同伴评分按百分制归一化；缺失的评分来源会自动剔除并重新归一化权重。
+ */
+export function calculateWeightedScore(
+  input: WeightedScoreInput,
+): { totalScore: number; scoreTier: string; label: string } | null {
+  const entries: { score: number; weight: number }[] = [];
+  if (input.aiScore !== null && input.aiScore !== undefined) {
+    entries.push({ score: input.aiScore, weight: input.weights.ai });
+  }
+  if (input.teacherScore !== null && input.teacherScore !== undefined) {
+    entries.push({
+      score: normalizeToMaxScore(input.teacherScore, input.maxScore),
+      weight: input.weights.teacher,
+    });
+  }
+  if (input.peerAverage !== null && input.peerAverage !== undefined) {
+    entries.push({
+      score: normalizeToMaxScore(input.peerAverage, input.maxScore),
+      weight: input.weights.peer,
+    });
+  }
+
+  const totalWeight = entries.reduce((sum, e) => sum + e.weight, 0);
+  if (entries.length === 0 || totalWeight <= 0) {
+    return null;
+  }
+
+  const weightedSum = entries.reduce((sum, e) => sum + e.score * e.weight, 0);
+  const totalScore = Math.round((weightedSum / totalWeight) * 10) / 10;
+  const tier = getScoreTierByStage(totalScore, input.stage);
+  return { totalScore, scoreTier: tier.tier, label: tier.label };
+}
+
+const DEFAULT_PEER_REVIEW_WEIGHTS: PeerReviewWeights = { ai: 0.6, teacher: 0.3, peer: 0.1 };
+
+/**
+ * 安全解析同伴互评权重 JSON，字段缺失或非法时使用默认值。
+ */
+export function parsePeerReviewWeights(weights: string | null | undefined): PeerReviewWeights {
+  if (!weights) return DEFAULT_PEER_REVIEW_WEIGHTS;
+  try {
+    const parsed = JSON.parse(weights) as Partial<PeerReviewWeights>;
+    return {
+      ai: typeof parsed.ai === 'number' ? parsed.ai : DEFAULT_PEER_REVIEW_WEIGHTS.ai,
+      teacher:
+        typeof parsed.teacher === 'number' ? parsed.teacher : DEFAULT_PEER_REVIEW_WEIGHTS.teacher,
+      peer: typeof parsed.peer === 'number' ? parsed.peer : DEFAULT_PEER_REVIEW_WEIGHTS.peer,
+    };
+  } catch {
+    return DEFAULT_PEER_REVIEW_WEIGHTS;
+  }
 }
 
 export * from './hash.js';

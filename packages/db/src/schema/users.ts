@@ -3,13 +3,17 @@ import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { achievements } from './achievements.js';
 import { aiConversations } from './ai-conversations.js';
 import { apiTokens } from './api-tokens.js';
+import { challengeSubmissions } from './daily-challenges.js';
 import { deviceTokens } from './device-tokens.js';
 import { errorBooks } from './error-books.js';
 import { essayDrafts } from './essay-drafts.js';
+import { notificationLogs } from './notification-logs.js';
+import { peerReviews } from './peer-reviews.js';
 import { practiceExercises } from './practice-exercises.js';
 import { schools } from './schools.js';
 import { studentTags } from './student_tags.js';
 import { teachingResources } from './teaching_resources.js';
+import { studentMaterialFavorites, writingMaterials } from './writing-materials.js';
 
 export const users = sqliteTable(
   'users',
@@ -47,4 +51,9 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   essayDrafts: many(essayDrafts),
   apiTokens: many(apiTokens),
   deviceTokens: many(deviceTokens),
+  notificationLogs: many(notificationLogs),
+  challengeSubmissions: many(challengeSubmissions),
+  writingMaterials: many(writingMaterials),
+  materialFavorites: many(studentMaterialFavorites),
+  peerReviews: many(peerReviews),
 }));

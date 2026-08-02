@@ -138,6 +138,16 @@ export const EssayStatus = {
 
 export type EssayStatusValue = (typeof EssayStatus)[keyof typeof EssayStatus];
 
+export const ModelEssayImitationStatus = {
+  PENDING: 'pending',
+  CORRECTING: 'correcting',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+} as const;
+
+export type ModelEssayImitationStatusValue =
+  (typeof ModelEssayImitationStatus)[keyof typeof ModelEssayImitationStatus];
+
 export const TopicTypeLabels: Record<TopicTypeValue, string> = {
   [TopicType.LETTER]: '书信',
   [TopicType.SPEECH]: '演讲稿',
@@ -226,6 +236,13 @@ export const EssayStatusLabels: Record<EssayStatusValue, string> = {
   [EssayStatus.FAILED]: '批改失败',
 };
 
+export const ModelEssayImitationStatusLabels: Record<ModelEssayImitationStatusValue, string> = {
+  [ModelEssayImitationStatus.PENDING]: '等待批改',
+  [ModelEssayImitationStatus.CORRECTING]: '批改中',
+  [ModelEssayImitationStatus.COMPLETED]: '已完成',
+  [ModelEssayImitationStatus.FAILED]: '批改失败',
+};
+
 export function getTopicTypeLabel(topicType: string): string {
   return TopicTypeLabels[topicType as TopicTypeValue] ?? topicType;
 }
@@ -274,6 +291,10 @@ export function getErrorBookStatusLabel(status: string): string {
 
 export function getEssayStatusLabel(status: string): string {
   return EssayStatusLabels[status as EssayStatusValue] ?? status;
+}
+
+export function getModelEssayImitationStatusLabel(status: string): string {
+  return ModelEssayImitationStatusLabels[status as ModelEssayImitationStatusValue] ?? status;
 }
 
 export function getEducationStageLabel(stage: string): string {

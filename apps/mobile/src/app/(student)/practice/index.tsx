@@ -95,6 +95,23 @@ export default function StudentPracticePage() {
     <ScrollView style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
       <Text style={[styles.title, { color: colors.textPrimary }]}>自主练习</Text>
 
+      <Card colors={colors} style={styles.challengeCard}>
+        <View style={styles.challengeContent}>
+          <View>
+            <Text style={[styles.challengeTitle, { color: colors.textPrimary }]}>每日写作挑战</Text>
+            <Text style={[styles.challengeDesc, { color: colors.textSecondary }]}>
+              每天一道题，坚持打卡提升写作能力
+            </Text>
+          </View>
+          <Button
+            title="去挑战"
+            size="sm"
+            onPress={() => router.push('/(student)/daily-challenge')}
+            colors={colors}
+          />
+        </View>
+      </Card>
+
       <View style={styles.tabBar}>
         {tabs.map((t) => (
           <Button
@@ -271,6 +288,23 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     marginBottom: 16,
+  },
+  challengeCard: {
+    marginBottom: 16,
+  },
+  challengeContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+  challengeTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  challengeDesc: {
+    fontSize: 13,
   },
   tabBar: {
     flexDirection: 'row',

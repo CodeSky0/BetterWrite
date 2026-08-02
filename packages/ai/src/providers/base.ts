@@ -1,3 +1,4 @@
+import type { LanguageModelV4 } from '@ai-sdk/provider';
 import { generateObject, generateText } from 'ai';
 import type { ZodSchema } from 'zod';
 
@@ -20,9 +21,10 @@ export interface CacheStats {
   hitRate: number;
 }
 
-// AI SDK client type - varies by provider (createOpenAI, createDeepSeek, etc.)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AIClientFactory = (...args: any[]) => (model: string) => any;
+export type LanguageModelResolver = (modelId: string) => LanguageModelV4;
+
+// AI SDK client factory type - varies by provider (createOpenAI, createDeepSeek, etc.)
+export type AIClientFactory = (...args: unknown[]) => LanguageModelResolver;
 
 export abstract class BaseAIProvider {
   abstract readonly name: string;
@@ -58,7 +60,7 @@ export abstract class BaseAIProvider {
   }
 
   // Subclasses must implement this to return their SDK client
-  protected abstract getClient(): (model: string) => any;
+  protected abstract getClient(): LanguageModelResolver;
 
   async complete(prompt: string, options?: CompletionOptions): Promise<string> {
     const { text } = await generateText({

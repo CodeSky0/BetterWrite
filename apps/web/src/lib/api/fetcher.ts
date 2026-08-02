@@ -8,12 +8,16 @@ import type {
   AnnouncementItem,
   ApiCallLogItem,
   ApiConfigItem,
+  ChallengeStreak,
+  ChallengeSubmission,
   ClassroomMonitorData,
   CorrectionStage,
+  DailyChallenge,
   DailyQuote,
   ErrorBookGroup,
   ErrorBookItem,
   EssayDraft,
+  EssayPeerReviewConfig,
   EssayVersion,
   ExamForecast,
   ExamHistoryItem,
@@ -21,7 +25,13 @@ import type {
   MicroExercise,
   MicroExerciseResult,
   MicroSkill,
+  ModelEssayImitation,
   ModelRouteItem,
+  NotificationLog,
+  PeerReview,
+  PeerReviewSummary,
+  PeerReviewWeights,
+  PeerReviewWithEssay,
   PracticeExercise,
   PublicQuestionWithStats,
   QuestionBankItem,
@@ -30,6 +40,7 @@ import type {
   SimilarityCheckResult,
   StudentProgress,
   WeeklyReport,
+  WritingMaterial,
 } from '@betterwrite/shared';
 import type {
   AiGeneratedTask,
@@ -777,4 +788,320 @@ export const fetcher = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  // ========== Feature 9: Smart Push Notifications ==========
+  getNotifications: (params?: { offset?: number; limit?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.offset !== undefined) query.set('offset', String(params.offset));
+    if (params?.limit !== undefined) query.set('limit', String(params.limit));
+    const qs = query.toString();
+    return request<
+      ApiResponse<{
+        items: NotificationLog[];
+        total: number;
+        unread: number;
+      }>
+    >(`/api/notifications${qs ? `?${qs}` : ''}`);
+  },
+  markNotificationRead: (id: string) =>
+    request<ApiResponse<null>>(`/api/notifications/${id}/read`, { method: 'POST' }),
+  markAllNotificationsRead: () =>
+    request<ApiResponse<null>>('/api/notifications/read-all', { method: 'POST' }),
+
+  // ========== Feature 10: Daily Writing Challenge ==========
+  getDailyChallengeToday: () =>
+    request<
+      ApiResponse<{
+        challenge: DailyChallenge;
+        submission: ChallengeSubmission | null;
+        streak: number;
+      }>
+    >('/api/daily-challenges/today'),
+  submitDailyChallenge: (challengeId: string, data: { content: string; durationMs?: number }) =>
+    request<
+      ApiResponse<{
+        submissionId: string;
+        score: number;
+        scoreTier: string;
+        feedback: string;
+        streakDays: number;
+      }>
+    >(`/api/daily-challenges/${challengeId}/submit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getDailyChallengeStreak: () =>
+    request<ApiResponse<ChallengeStreak & { totalSubmissions: number }>>(
+      '/api/daily-challenges/streak',
+    ),
+
+  // ---------- Teacher daily challenge management ----------
+  getTeacherDailyChallenges: (params?: {
+    stage?: string;
+    type?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    keyword?: string;
+    page?: number;
+    pageSize?: number;
+  }) =>
+    request<
+      ApiResponse<{
+        list: DailyChallenge[];
+        total: number;
+        page: number;
+        pageSize: number;
+      }>
+    >(
+      `/api/teacher/daily-challenges?${new URLSearchParams({
+        ...(params?.stage ? { stage: params.stage } : {}),
+        ...(params?.type ? { type: params.type } : {}),
+        ...(params?.dateFrom ? { dateFrom: params.dateFrom } : {}),
+        ...(params?.dateTo ? { dateTo: params.dateTo } : {}),
+        ...(params?.keyword ? { keyword: params.keyword } : {}),
+        page: String(params?.page ?? 1),
+        pageSize: String(params?.pageSize ?? 20),
+      }).toString()}`,
+    ),
+  createDailyChallenge: (data: {
+    challengeDate: string;
+    stage?: string;
+    type: string;
+    title: string;
+    instruction: string;
+    content: string;
+    referenceAnswer?: string;
+    suggestedWords?: number;
+    difficulty?: number;
+    topicType?: string;
+    topicCategory?: string;
+    isActive?: boolean;
+  }) =>
+    request<ApiResponse<DailyChallenge>>('/api/teacher/daily-challenges', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateDailyChallenge: (
+    id: string,
+    data: Partial<{
+      challengeDate: string;
+      stage: string;
+      type: string;
+      title: string;
+      instruction: string;
+      content: string;
+      referenceAnswer: string;
+      suggestedWords: number;
+      difficulty: number;
+      topicType: string;
+      topicCategory: string;
+      isActive: boolean;
+    }>,
+  ) =>
+    request<ApiResponse<DailyChallenge>>(`/api/teacher/daily-challenges/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteDailyChallenge: (id: string) =>
+    request<ApiResponse<null>>(`/api/teacher/daily-challenges/${id}`, { method: 'DELETE' }),
+
+  // ========== Feature 11: Writing Material Library ==========
+  getWritingMaterials: (params?: {
+    type?: string;
+    topicType?: string;
+    stage?: string;
+    difficulty?: string;
+    keyword?: string;
+    page?: number;
+    pageSize?: number;
+  }) =>
+    request<
+      ApiResponse<{
+        list: WritingMaterial[];
+        total: number;
+        page: number;
+        pageSize: number;
+      }>
+    >(
+      `/api/writing-materials?${new URLSearchParams({
+        ...(params?.type ? { type: params.type } : {}),
+        ...(params?.topicType ? { topicType: params.topicType } : {}),
+        ...(params?.stage ? { stage: params.stage } : {}),
+        ...(params?.difficulty ? { difficulty: params.difficulty } : {}),
+        ...(params?.keyword ? { keyword: params.keyword } : {}),
+        page: String(params?.page ?? 1),
+        pageSize: String(params?.pageSize ?? 20),
+      }).toString()}`,
+    ),
+  getWritingMaterial: (id: string) =>
+    request<ApiResponse<WritingMaterial>>(`/api/writing-materials/${id}`),
+  createWritingMaterial: (data: {
+    type: string;
+    title: string;
+    content: string;
+    topicType?: string;
+    stage?: string;
+    difficulty: string;
+    tags?: string[];
+    source?: string;
+    isPublic?: boolean;
+  }) =>
+    request<ApiResponse<WritingMaterial>>('/api/writing-materials', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateWritingMaterial: (
+    id: string,
+    data: Partial<{
+      type: string;
+      title: string;
+      content: string;
+      topicType?: string;
+      stage?: string;
+      difficulty: string;
+      tags?: string[];
+      source?: string;
+      isPublic?: boolean;
+    }>,
+  ) =>
+    request<ApiResponse<WritingMaterial>>(`/api/writing-materials/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteWritingMaterial: (id: string) =>
+    request<ApiResponse<null>>(`/api/writing-materials/${id}`, { method: 'DELETE' }),
+  favoriteWritingMaterial: (id: string) =>
+    request<ApiResponse<{ isFavorited: boolean }>>(`/api/writing-materials/${id}/favorite`, {
+      method: 'POST',
+    }),
+  unfavoriteWritingMaterial: (id: string) =>
+    request<ApiResponse<{ isFavorited: boolean }>>(`/api/writing-materials/${id}/favorite`, {
+      method: 'DELETE',
+    }),
+
+  // ========== Feature 12: Peer Review ==========
+  getPeerReviewConfig: (taskId: string) =>
+    request<ApiResponse<EssayPeerReviewConfig | null>>(`/api/peer-reviews/configs/${taskId}`),
+
+  createPeerReviewConfig: (data: {
+    taskId: string;
+    enabled?: boolean;
+    reviewsPerEssay?: number;
+    reviewsPerStudent?: number;
+    anonymous?: boolean;
+    weights?: PeerReviewWeights;
+    dueDate?: string;
+    guidingQuestions?: Array<{ id: string; text: string }>;
+  }) =>
+    request<ApiResponse<EssayPeerReviewConfig>>('/api/peer-reviews/configs', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  assignPeerReviews: (taskId: string) =>
+    request<ApiResponse<{ assignedCount: number; essayCount: number }>>(
+      `/api/peer-reviews/tasks/${taskId}/assign`,
+      { method: 'POST' },
+    ),
+
+  getPeerReviewTaskSummary: (taskId: string) =>
+    request<
+      ApiResponse<{ total: number; completed: number; pending: number; completionRate: number }>
+    >(`/api/peer-reviews/tasks/${taskId}/summary`),
+
+  getPeerReviewsForEssay: (essayId: string) =>
+    request<
+      ApiResponse<{
+        essay: {
+          id: string;
+          title: string | null;
+          content: string;
+          wordCount: number;
+          studentId: string;
+          taskId: string | null;
+          taskTitle: string | null;
+        };
+        reviews: PeerReview[];
+        summary: PeerReviewSummary;
+      }>
+    >(`/api/peer-reviews/essays/${essayId}`),
+
+  getPendingPeerReviews: () =>
+    request<ApiResponse<PeerReviewWithEssay[]>>('/api/peer-reviews/pending'),
+
+  getMyEssayPeerReviews: (essayId: string) =>
+    request<
+      ApiResponse<{
+        reviews: PeerReview[];
+        summary: PeerReviewSummary;
+      }>
+    >(`/api/peer-reviews/my-essay/${essayId}`),
+
+  submitPeerReview: (
+    id: string,
+    data: {
+      contentScore: number;
+      languageScore: number;
+      structureScore: number;
+      handwritingScore: number;
+      comment?: string;
+      answers?: Array<{ questionId: string; answer: string }>;
+    },
+  ) =>
+    request<ApiResponse<PeerReview>>(`/api/peer-reviews/${id}/submit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  // ========== Feature P1 F5: 范文精读与仿写 ==========
+  analyzeModelEssayResource: (id: string) =>
+    request<ApiResponse<TeachingResourceWithCreator>>(`/api/teacher/resources/${id}/analyze`, {
+      method: 'POST',
+    }),
+
+  listStudentModelEssays: (params?: {
+    topicType?: string;
+    difficulty?: string;
+    limit?: number;
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.topicType) query.set('topicType', params.topicType);
+    if (params?.difficulty) query.set('difficulty', params.difficulty);
+    if (params?.limit !== undefined) query.set('limit', String(params.limit));
+    const qs = query.toString();
+    return request<ApiResponse<TeachingResourceWithCreator[]>>(
+      `/api/student/model-essays${qs ? `?${qs}` : ''}`,
+    );
+  },
+
+  getStudentModelEssay: (id: string) =>
+    request<
+      ApiResponse<{ resource: TeachingResourceWithCreator; myImitations: ModelEssayImitation[] }>
+    >(`/api/student/model-essays/${id}`),
+
+  submitModelEssayImitation: (id: string, data: { title?: string; content: string }) =>
+    request<ApiResponse<ModelEssayImitation>>(`/api/student/model-essays/${id}/imitate`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  listModelEssayImitations: (id: string) =>
+    request<ApiResponse<ModelEssayImitation[]>>(`/api/student/model-essays/${id}/imitations`),
+
+  getTeacherModelEssayStatistics: (id: string) =>
+    request<
+      ApiResponse<{
+        resource: TeachingResourceWithCreator;
+        total: number;
+        completed: number;
+        correcting: number;
+        failed: number;
+        averageScore: number | null;
+        submissions: Array<
+          ModelEssayImitation & {
+            student?: { id: string; name: string; studentNo: string | null } | null;
+          }
+        >;
+      }>
+    >(`/api/teacher/model-essays/${id}/statistics`),
 };

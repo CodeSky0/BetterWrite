@@ -2,6 +2,11 @@ export * from './correctors/index.js';
 export * from './providers/index.js';
 export { AIProviderRouter, type CorrectionType } from './router.js';
 export {
+  scoreChallenge,
+  type ChallengeScoreResult,
+  type EducationStage,
+} from './challenge-scorer.js';
+export {
   DynamicAIProviderRouter,
   createEndpointProvider,
   createRouterFromConfigs,
@@ -10,3 +15,9 @@ export {
 } from './dynamic-router.js';
 export * from './assistant.js';
 export * from './assistants/schemas.js';
+export {
+  analyzeModelEssay,
+  correctImitation,
+  type ModelEssayAnalysis,
+  type ModelEssayImitationFeedback,
+} from './model-essay.js';

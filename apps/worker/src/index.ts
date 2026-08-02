@@ -1,18 +1,39 @@
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { type EssayTaskInput, correctEssay } from '@betterwrite/ai';
-import { corrections, db, essays } from '@betterwrite/db';
-import { getScoreTier } from '@betterwrite/shared';
+import { type EssayTaskInput, correctEssay, correctImitation } from '@betterwrite/ai';
+import {
+  challengeSubmissions,
+  corrections,
+  dailyChallenges,
+  db,
+  deviceTokens,
+  essayPeerReviewConfigs,
+  essayTasks,
+  essays,
+  modelEssayImitations,
+  notificationLogs,
+  peerReviews,
+  users,
+} from '@betterwrite/db';
+import {
+  calculateWeightedScore,
+  getMaxScoreByStage,
+  getScoreTier,
+  parsePeerReviewWeights,
+} from '@betterwrite/shared';
+import type { EducationStageValue } from '@betterwrite/shared';
 import { env } from '@betterwrite/shared/env';
 import { logger } from '@betterwrite/shared/logger';
 import {
   CORRECTION_QUEUE,
   type CorrectionJobData,
+  MODEL_ESSAY_IMITATION_QUEUE,
+  type ModelEssayImitationJobData,
   aiProviderCircuitBreaker,
 } from '@betterwrite/shared/queue';
 import { Worker } from 'bullmq';
-import { and, eq, inArray, lt } from 'drizzle-orm';
+import { and, eq, gte, inArray, lt, lte } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { aiRouterManager } from './ai-config.js';
 
@@ -191,12 +212,49 @@ export async function processCorrection(job: CorrectionJob): Promise<void> {
         createdAt: now,
       });
 
+      // 若任务配置了同伴互评权重，则 AI 批改后按权重合成最终总分。
+      const stage = (essay.stage as EducationStageValue) ?? 'junior';
+      const seniorEssayType =
+        (essay.task?.seniorEssayType as import('@betterwrite/shared').SeniorEssayTypeValue) ??
+        undefined;
+      const maxScore = getMaxScoreByStage(stage, seniorEssayType);
+
+      const configRows = essay.taskId
+        ? await tx
+            .select({ weights: essayPeerReviewConfigs.weights })
+            .from(essayPeerReviewConfigs)
+            .where(eq(essayPeerReviewConfigs.taskId, essay.taskId))
+            .limit(1)
+        : [];
+      const weights = parsePeerReviewWeights(configRows[0]?.weights ?? null);
+
+      const completedPeerRows = await tx
+        .select({ totalScore: peerReviews.totalScore })
+        .from(peerReviews)
+        .where(and(eq(peerReviews.essayId, essayId), eq(peerReviews.status, 'completed')));
+      const peerAverage =
+        completedPeerRows.length > 0
+          ? completedPeerRows.reduce((sum, r) => sum + (r.totalScore ?? 0), 0) /
+            completedPeerRows.length
+          : null;
+
+      const weighted = calculateWeightedScore({
+        aiScore: result.totalScore,
+        teacherScore: essay.teacherScore,
+        peerAverage,
+        weights,
+        maxScore,
+        stage,
+      });
+      const finalTotalScore = weighted?.totalScore ?? result.totalScore;
+      const finalScoreTier = weighted?.scoreTier ?? result.scoreTier;
+
       const updated = await tx
         .update(essays)
         .set({
           status: 'completed',
-          totalScore: result.totalScore,
-          scoreTier: result.scoreTier,
+          totalScore: finalTotalScore,
+          scoreTier: finalScoreTier,
           correctionId,
           correctedAt: now,
           updatedAt: now,
@@ -206,6 +264,18 @@ export async function processCorrection(job: CorrectionJob): Promise<void> {
       if (updated.rowsAffected === 0) {
         throw new Error(`Essay ${essayId} was not in 'correcting' state, aborting`);
       }
+
+      correctionLogger.info(
+        {
+          aiScore: result.totalScore,
+          teacherScore: essay.teacherScore,
+          peerAverage,
+          weights,
+          finalTotalScore,
+          finalScoreTier,
+        },
+        'Essay weighted score calculated',
+      );
     });
 
     correctionLogger.info(
@@ -229,6 +299,119 @@ export async function processCorrection(job: CorrectionJob): Promise<void> {
       correctionLogger.error(
         { err: rollbackErr },
         '[API processCorrection] failed to mark essay as failed',
+      );
+    }
+    throw error;
+  }
+}
+
+export async function processModelEssayImitationCorrection(job: {
+  imitationId: string;
+}): Promise<void> {
+  const { imitationId } = job;
+  const correctionLogger = workerLogger.child({ imitationId });
+  correctionLogger.info('Correcting model essay imitation');
+
+  if (!aiProviderCircuitBreaker.canAttempt()) {
+    const state = aiProviderCircuitBreaker.getState();
+    correctionLogger.warn(
+      {
+        isOpen: state.isOpen,
+        failureCount: state.failureCount,
+        nextAttemptTime: new Date(state.nextAttemptTime).toISOString(),
+      },
+      'Circuit breaker is open, skipping imitation correction',
+    );
+    throw new Error('Circuit breaker is open, AI provider unavailable');
+  }
+
+  const imitation = await db.query.modelEssayImitations.findFirst({
+    where: eq(modelEssayImitations.id, imitationId),
+    with: { resource: true },
+  });
+
+  if (!imitation) {
+    throw new Error(`Model essay imitation ${imitationId} not found`);
+  }
+
+  if (imitation.status === 'completed') {
+    correctionLogger.info('Imitation already completed, skipping');
+    return;
+  }
+
+  const resource = imitation.resource;
+  if (!resource) {
+    throw new Error(`Resource for imitation ${imitationId} not found`);
+  }
+
+  const now = new Date().toISOString();
+  const claimResult = await db
+    .update(modelEssayImitations)
+    .set({ status: 'correcting', updatedAt: now })
+    .where(
+      and(
+        eq(modelEssayImitations.id, imitationId),
+        inArray(modelEssayImitations.status, ['pending', 'failed']),
+      ),
+    )
+    .returning({ id: modelEssayImitations.id });
+
+  if (claimResult.length === 0) {
+    correctionLogger.warn(
+      { status: imitation.status },
+      'Imitation already claimed by another worker, skipping',
+    );
+    return;
+  }
+
+  try {
+    const router = await aiRouterManager.ensureRouter();
+    const analysis = resource.analysis
+      ? (JSON.parse(resource.analysis) as import('@betterwrite/shared').ModelEssayAnalysis)
+      : undefined;
+    const result = await correctImitation(
+      router,
+      {
+        title: resource.title,
+        content: resource.content,
+        analysis,
+      },
+      { title: imitation.title, content: imitation.content },
+      (resource.stage as 'junior' | 'senior') ?? 'junior',
+    );
+
+    aiProviderCircuitBreaker.recordSuccess();
+
+    await db
+      .update(modelEssayImitations)
+      .set({
+        status: 'completed',
+        score: result.score,
+        feedback: JSON.stringify({
+          overallComment: result.overallComment,
+          strengths: result.strengths,
+          weaknesses: result.weaknesses,
+          suggestions: result.suggestions,
+          dimensionScores: result.dimensionScores,
+          highlightedSentences: result.highlightedSentences,
+        }),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(modelEssayImitations.id, imitationId));
+
+    correctionLogger.info({ score: result.score }, 'Model essay imitation corrected');
+  } catch (error) {
+    aiProviderCircuitBreaker.recordFailure();
+    correctionLogger.error({ err: error }, 'Model essay imitation correction failed');
+    try {
+      await db
+        .update(modelEssayImitations)
+        .set({ status: 'failed', updatedAt: new Date().toISOString() })
+        .where(eq(modelEssayImitations.id, imitationId));
+    } catch (rollbackErr) {
+      correctionLogger.error(
+        { err: rollbackErr },
+        '[Worker processModelEssayImitationCorrection] failed to mark imitation as failed',
       );
     }
     throw error;
@@ -321,6 +504,200 @@ function createMockCorrection(
   };
 }
 
+// ========== Smart Push Notification Scheduler ==========
+
+interface ExpoPushMessage {
+  to: string;
+  title: string;
+  body: string;
+  sound?: 'default';
+  data?: Record<string, string>;
+}
+
+async function sendExpoPush(
+  messages: ExpoPushMessage[],
+): Promise<{ sent: number; failed: number }> {
+  const expoAccessToken = process.env.EXPO_ACCESS_TOKEN;
+  if (!expoAccessToken || messages.length === 0) {
+    return { sent: 0, failed: messages.length };
+  }
+  try {
+    const res = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${expoAccessToken}`,
+      },
+      body: JSON.stringify(messages),
+    });
+    if (!res.ok) {
+      workerLogger.error({ status: res.status }, 'Expo push request failed');
+      return { sent: 0, failed: messages.length };
+    }
+    // Expo 返回数组，每项有 status；为简化统计，按请求成功计数。
+    return { sent: messages.length, failed: 0 };
+  } catch (err) {
+    workerLogger.error({ err }, 'Expo push request error');
+    return { sent: 0, failed: messages.length };
+  }
+}
+
+async function createNotification(
+  userId: string,
+  type: string,
+  title: string,
+  body: string,
+  referenceId?: string,
+): Promise<string> {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  await db.insert(notificationLogs).values({
+    id,
+    userId,
+    type,
+    title,
+    body,
+    referenceId,
+    channel: 'in_app',
+    status: 'sent',
+    sentAt: now,
+    createdAt: now,
+  });
+  return id;
+}
+
+async function sendNotificationToUser(
+  userId: string,
+  type: string,
+  title: string,
+  body: string,
+  referenceId?: string,
+): Promise<void> {
+  const notificationId = await createNotification(userId, type, title, body, referenceId);
+  const tokens = await db.query.deviceTokens.findMany({
+    where: eq(deviceTokens.userId, userId),
+  });
+  if (tokens.length === 0) return;
+
+  const messages: ExpoPushMessage[] = tokens.map((t) => ({
+    to: t.token,
+    title,
+    body,
+    sound: 'default',
+    data: { type, referenceId: referenceId ?? '', notificationId },
+  }));
+
+  const { sent, failed } = await sendExpoPush(messages);
+  if (failed > 0) {
+    await db
+      .update(notificationLogs)
+      .set({ status: 'failed', errorMessage: `push failed: ${failed}/${messages.length}` })
+      .where(eq(notificationLogs.id, notificationId));
+  }
+  workerLogger.info({ userId, type, sent, failed }, 'Notification sent');
+}
+
+async function runNotificationScheduler(): Promise<void> {
+  const now = new Date();
+  const nowStr = now.toISOString();
+  const windowStart = new Date(now.getTime() + 55 * 60 * 1000).toISOString(); // 55 分钟后
+  const windowEnd = new Date(now.getTime() + 65 * 60 * 1000).toISOString(); // 65 分钟后
+  workerLogger.info({ windowStart, windowEnd }, 'Running notification scheduler');
+
+  try {
+    // 1. 任务截止提醒（24 小时前）
+    const dueSoonTasks = await db.query.essayTasks.findMany({
+      where: and(
+        gte(essayTasks.dueDate, windowStart),
+        lte(essayTasks.dueDate, windowEnd),
+        eq(essayTasks.status, 'published'),
+      ),
+      with: { class: true },
+    });
+
+    for (const task of dueSoonTasks) {
+      if (!task.class) continue;
+      // 通过 class_enrollments 精确查找该班级学生
+      const { classEnrollments } = await import('@betterwrite/db');
+      const enrollments = await db.query.classEnrollments.findMany({
+        where: and(
+          eq(classEnrollments.classId, task.classId),
+          eq(classEnrollments.role, 'student'),
+        ),
+        with: { user: true },
+      });
+      for (const enrollment of enrollments) {
+        const student = enrollment.user;
+        if (!student) continue;
+        // 检查是否已提交
+        const submitted = await db.query.essays.findFirst({
+          where: and(eq(essays.taskId, task.id), eq(essays.studentId, student.id)),
+        });
+        if (submitted) continue;
+        await sendNotificationToUser(
+          student.id,
+          'task_due',
+          '任务即将截止',
+          `「${task.title}」将在 1 小时后截止，请及时完成。`,
+          task.id,
+        );
+      }
+    }
+
+    // 2. 教师待批改提醒（每天一次，提醒有 pending 作文的教师）
+    const pendingEssays = await db.query.essays.findMany({
+      where: eq(essays.status, 'pending'),
+      with: { task: { with: { class: true } } },
+    });
+    const teacherPendingMap = new Map<string, number>();
+    for (const essay of pendingEssays) {
+      const teacherId = essay.task?.class?.teacherId;
+      if (!teacherId) continue;
+      teacherPendingMap.set(teacherId, (teacherPendingMap.get(teacherId) ?? 0) + 1);
+    }
+    for (const [teacherId, count] of teacherPendingMap) {
+      await sendNotificationToUser(
+        teacherId,
+        'teacher_pending',
+        '有待批改作文',
+        `您有 ${count} 篇学生作文待批改，请及时处理。`,
+      );
+    }
+
+    // 3. 每日挑战提醒（每天早上 8 点触发）
+    const hour = now.getHours();
+    if (hour === 8) {
+      const todayStr = nowStr.slice(0, 10);
+      const todayChallenge = await db.query.dailyChallenges.findFirst({
+        where: and(eq(dailyChallenges.challengeDate, todayStr), eq(dailyChallenges.isActive, true)),
+      });
+      if (todayChallenge) {
+        const students = await db.query.users.findMany({
+          where: eq(users.role, 'student'),
+        });
+        for (const student of students) {
+          const submitted = await db.query.challengeSubmissions.findFirst({
+            where: and(
+              eq(challengeSubmissions.challengeId, todayChallenge.id),
+              eq(challengeSubmissions.studentId, student.id),
+            ),
+          });
+          if (submitted) continue;
+          await sendNotificationToUser(
+            student.id,
+            'daily_challenge',
+            '每日写作挑战',
+            `今天的挑战「${todayChallenge.title}」已发布，快来参加吧！`,
+            todayChallenge.id,
+          );
+        }
+      }
+    }
+  } catch (err) {
+    workerLogger.error({ err }, 'Notification scheduler failed');
+  }
+}
+
 async function main(): Promise<void> {
   if (!env.REDIS_URL) {
     workerLogger.error('REDIS_URL is required to run the worker');
@@ -369,6 +746,32 @@ async function main(): Promise<void> {
     workerLogger.info({ essayId: job.data.essayId }, 'Correction job completed');
   });
 
+  const imitationWorker = new Worker<ModelEssayImitationJobData>(
+    MODEL_ESSAY_IMITATION_QUEUE,
+    async (job) => {
+      workerLogger.info(
+        { imitationId: job.data.imitationId, attempt: job.attemptsMade + 1 },
+        'Processing model essay imitation correction',
+      );
+      await processModelEssayImitationCorrection({ imitationId: job.data.imitationId });
+    },
+    { connection, concurrency: env.WORKER_CONCURRENCY },
+  );
+
+  imitationWorker.on('failed', (job, err) => {
+    workerLogger.error(
+      { imitationId: job?.data.imitationId, err },
+      'Model essay imitation correction job failed',
+    );
+  });
+
+  imitationWorker.on('completed', (job) => {
+    workerLogger.info(
+      { imitationId: job.data.imitationId },
+      'Model essay imitation correction job completed',
+    );
+  });
+
   const healthServer = createServer(async (req, res) => {
     if (req.url === '/health') {
       let database: 'ok' | 'error' = 'ok';
@@ -387,12 +790,13 @@ async function main(): Promise<void> {
         redis = 'error';
       }
 
-      const ok = worker.isRunning() && database === 'ok' && redis === 'ok';
+      const ok =
+        worker.isRunning() && imitationWorker.isRunning() && database === 'ok' && redis === 'ok';
       res.writeHead(ok ? 200 : 503, { 'Content-Type': 'application/json' });
       res.end(
         JSON.stringify({
           status: ok ? 'ok' : 'error',
-          queue: CORRECTION_QUEUE,
+          queues: [CORRECTION_QUEUE, MODEL_ESSAY_IMITATION_QUEUE],
           database,
           redis,
         }),
@@ -407,12 +811,23 @@ async function main(): Promise<void> {
     workerLogger.info({ port: env.WORKER_HEALTH_PORT }, 'Worker health server listening');
   });
 
+  // 启动通知调度器并定时运行（每 10 分钟检查一次）
+  await runNotificationScheduler();
+  const schedulerInterval = setInterval(
+    () => {
+      void runNotificationScheduler();
+    },
+    10 * 60 * 1000,
+  );
+
   let isShuttingDown = false;
   const shutdown = async (signal: string) => {
     if (isShuttingDown) return;
     isShuttingDown = true;
+    clearInterval(schedulerInterval);
     workerLogger.info({ signal }, 'Shutting down worker');
     await worker.close();
+    await imitationWorker.close();
     await aiRouterManager.stop();
     await new Promise<void>((resolve, reject) => {
       healthServer.close((err) => (err ? reject(err) : resolve()));

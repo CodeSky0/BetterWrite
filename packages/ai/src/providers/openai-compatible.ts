@@ -1,5 +1,5 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import { BaseAIProvider } from './base.js';
+import { BaseAIProvider, type LanguageModelResolver } from './base.js';
 
 // 通用 OpenAI 兼容 Provider：用于 anthropic / qwen / 自定义等提供 OpenAI 兼容
 // Chat Completions 端点的服务。name 与 defaultModel 由管理后台的 api_configs 决定，
@@ -17,7 +17,7 @@ export class OpenAICompatibleProvider extends BaseAIProvider {
     this.client = createOpenAI({ apiKey, baseURL });
   }
 
-  protected getClient() {
-    return this.client;
+  protected getClient(): LanguageModelResolver {
+    return this.client as LanguageModelResolver;
   }
 }

@@ -4,6 +4,14 @@
  */
 
 import type { EducationStageValue, PracticeDifficultyValue } from '../constants/essay.js';
+import type {
+  DailyChallengeTypeValue,
+  NotificationTypeValue,
+  PeerReviewDimensionValue,
+  PeerReviewStatusValue,
+  WritingMaterialDifficultyValue,
+  WritingMaterialTypeValue,
+} from '../constants/features.js';
 import type { MicroExerciseTypeValue } from '../constants/features.js';
 
 // ========== 功能1: 作文版本管理 ==========
@@ -314,4 +322,163 @@ export interface ClassBenchmark {
   gap: number;
   weakDimensions: Array<{ dimension: string; score: number; target: number }>;
   focusStudents: Array<{ studentId: string; name: string; currentScore: number; risk: string }>;
+}
+
+// ========== 功能9: 智能推送提醒 ==========
+
+export interface NotificationLog {
+  id: string;
+  userId: string;
+  type: NotificationTypeValue;
+  title: string;
+  body: string;
+  referenceId: string | null;
+  channel: 'push' | 'in_app' | 'sms';
+  isRead: boolean;
+  status: 'pending' | 'sent' | 'failed';
+  sentAt: string | null;
+  createdAt: string;
+}
+
+export interface NotificationSummary {
+  total: number;
+  unread: number;
+}
+
+// ========== 功能10: 每日写作挑战 ==========
+
+export interface DailyChallenge {
+  id: string;
+  challengeDate: string;
+  stage: EducationStageValue;
+  type: DailyChallengeTypeValue;
+  title: string;
+  instruction: string;
+  content: string;
+  referenceAnswer: string | null;
+  suggestedWords: number;
+  difficulty: number;
+  topicType: string | null;
+  topicCategory: string | null;
+  isActive: boolean;
+}
+
+export interface ChallengeSubmission {
+  id: string;
+  challengeId: string;
+  studentId: string;
+  content: string;
+  wordCount: number;
+  score: number | null;
+  scoreTier: string | null;
+  aiFeedback: Record<string, unknown>;
+  durationMs: number | null;
+  streakDays: number;
+  submittedAt: string;
+}
+
+export interface DailyChallengeWithSubmission extends DailyChallenge {
+  isSubmitted: boolean;
+  submission: ChallengeSubmission | null;
+}
+
+export interface ChallengeStreak {
+  currentStreak: number;
+  longestStreak: number;
+  lastSubmittedDate: string | null;
+}
+
+// ========== 功能11: 写作素材库 ==========
+
+export interface WritingMaterial {
+  id: string;
+  type: WritingMaterialTypeValue;
+  title: string;
+  content: string;
+  topicType: string | null;
+  stage: EducationStageValue;
+  difficulty: WritingMaterialDifficultyValue;
+  tags: string[];
+  source: string | null;
+  usageCount: number;
+  isPublic: boolean;
+  createdBy: string;
+  schoolId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  isFavorited?: boolean;
+}
+
+export interface StudentMaterialFavorite {
+  id: string;
+  studentId: string;
+  materialId: string;
+  createdAt: string;
+}
+
+// ========== 功能12: 同伴互评 ==========
+
+export interface PeerReviewWeights {
+  ai: number;
+  teacher: number;
+  peer: number;
+}
+
+export interface PeerReviewAnswer {
+  questionId: string;
+  answer: string;
+}
+
+export interface PeerReview {
+  id: string;
+  essayId: string;
+  reviewerId: string;
+  reviewerName: string | null;
+  anonymous: boolean;
+  contentScore: number | null;
+  languageScore: number | null;
+  structureScore: number | null;
+  handwritingScore: number | null;
+  totalScore: number | null;
+  comment: string | null;
+  answers: PeerReviewAnswer[];
+  status: PeerReviewStatusValue;
+  submittedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PeerReviewWithEssay extends PeerReview {
+  essay: {
+    id: string;
+    title: string | null;
+    content: string;
+    wordCount: number;
+    studentId: string;
+    studentName: string | null;
+    taskId: string | null;
+    taskTitle: string | null;
+  };
+}
+
+export interface EssayPeerReviewConfig {
+  id: string;
+  taskId: string;
+  createdBy: string;
+  enabled: boolean;
+  reviewsPerEssay: number;
+  reviewsPerStudent: number;
+  anonymous: boolean;
+  weights: PeerReviewWeights;
+  dueDate: string | null;
+  guidingQuestions: Array<{ id: string; text: string }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PeerReviewSummary {
+  essayId: string;
+  reviewCount: number;
+  averageScore: number | null;
+  dimensionAverages: Record<PeerReviewDimensionValue, number | null>;
 }

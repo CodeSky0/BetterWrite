@@ -6,6 +6,7 @@ import type {
   ErrorTypeValue,
   EssayStatusValue,
   ExerciseTypeValue,
+  ModelEssayImitationStatusValue,
   PracticeDifficultyValue,
   SeniorEssayTypeValue,
   StudentTagValue,
@@ -88,6 +89,23 @@ export interface Correction {
   suggestions: { priority: 'high' | 'medium' | 'low'; category: string; suggestion: string }[];
 }
 
+export interface ModelEssayParagraph {
+  index: number;
+  text: string;
+  function: string;
+  keySentence: string;
+}
+
+export interface ModelEssayAnalysis {
+  summary: string;
+  paragraphs: ModelEssayParagraph[];
+  connectives: Array<{ word: string; function: string; example: string }>;
+  highlights: Array<{ sentence: string; technique: string; comment: string }>;
+  vocabulary: Array<{ word: string; meaning: string; usage: string }>;
+  structure: string;
+  imitationTips: string[];
+}
+
 export interface TeachingResource {
   id: string;
   type: TeachingResourceTypeValue;
@@ -97,9 +115,47 @@ export interface TeachingResource {
   content: string;
   highlights: string;
   tags: string[];
+  analysis: ModelEssayAnalysis | null;
   createdBy: string;
+  // 学段：junior=初中，senior=高中
+  stage: EducationStageValue;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ModelEssayImitation {
+  id: string;
+  resourceId: string;
+  studentId: string;
+  title: string | null;
+  content: string;
+  wordCount: number;
+  status: ModelEssayImitationStatusValue;
+  score: number | null;
+  feedback: ModelEssayImitationFeedback | null;
+  teacherComment: string | null;
+  createdAt: string;
+  updatedAt: string;
+  resource?: TeachingResource;
+  student?: { id: string; name: string; studentNo: string | null } | null;
+}
+
+export interface ModelEssayImitationFeedback {
+  overallComment: string;
+  strengths: string[];
+  weaknesses: string[];
+  suggestions: string[];
+  dimensionScores: {
+    content: number;
+    language: number;
+    structure: number;
+    imitation: number;
+  };
+  highlightedSentences: Array<{
+    original: string;
+    upgraded: string;
+    reason: string;
+  }>;
 }
 
 export interface StudentTagRecord {
