@@ -1,7 +1,4 @@
-import type {
-  ModelEssayAnalysis,
-  ModelEssayImitationFeedback,
-} from '@betterwrite/shared';
+import type { ModelEssayAnalysis, ModelEssayImitationFeedback } from '@betterwrite/shared';
 import { z } from 'zod';
 import type { AIProviderRouter } from './router.js';
 
@@ -151,8 +148,12 @@ ${wrapStudentInput(imitation.content)}`;
     provider.completeStructured(prompt, imitationFeedbackSchema, { maxOutputTokens: 2048 }),
   );
 
-  const { content: contentScore, language, structure, imitation: imitationScore } =
-    feedback.dimensionScores;
+  const {
+    content: contentScore,
+    language,
+    structure,
+    imitation: imitationScore,
+  } = feedback.dimensionScores;
   const score = Math.round((contentScore + language + structure + imitationScore) / 4);
 
   return { ...feedback, score };

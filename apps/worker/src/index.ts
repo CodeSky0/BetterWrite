@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { type EssayTaskInput, correctEssay } from '@betterwrite/ai';
+import { type EssayTaskInput, correctEssay, correctImitation } from '@betterwrite/ai';
 import {
   challengeSubmissions,
   corrections,
@@ -10,6 +10,7 @@ import {
   deviceTokens,
   essayTasks,
   essays,
+  modelEssayImitations,
   notificationLogs,
   users,
 } from '@betterwrite/db';
@@ -19,6 +20,8 @@ import { logger } from '@betterwrite/shared/logger';
 import {
   CORRECTION_QUEUE,
   type CorrectionJobData,
+  MODEL_ESSAY_IMITATION_QUEUE,
+  type ModelEssayImitationJobData,
   aiProviderCircuitBreaker,
 } from '@betterwrite/shared/queue';
 import { Worker } from 'bullmq';
@@ -239,6 +242,119 @@ export async function processCorrection(job: CorrectionJob): Promise<void> {
       correctionLogger.error(
         { err: rollbackErr },
         '[API processCorrection] failed to mark essay as failed',
+      );
+    }
+    throw error;
+  }
+}
+
+export async function processModelEssayImitationCorrection(job: {
+  imitationId: string;
+}): Promise<void> {
+  const { imitationId } = job;
+  const correctionLogger = workerLogger.child({ imitationId });
+  correctionLogger.info('Correcting model essay imitation');
+
+  if (!aiProviderCircuitBreaker.canAttempt()) {
+    const state = aiProviderCircuitBreaker.getState();
+    correctionLogger.warn(
+      {
+        isOpen: state.isOpen,
+        failureCount: state.failureCount,
+        nextAttemptTime: new Date(state.nextAttemptTime).toISOString(),
+      },
+      'Circuit breaker is open, skipping imitation correction',
+    );
+    throw new Error('Circuit breaker is open, AI provider unavailable');
+  }
+
+  const imitation = await db.query.modelEssayImitations.findFirst({
+    where: eq(modelEssayImitations.id, imitationId),
+    with: { resource: true },
+  });
+
+  if (!imitation) {
+    throw new Error(`Model essay imitation ${imitationId} not found`);
+  }
+
+  if (imitation.status === 'completed') {
+    correctionLogger.info('Imitation already completed, skipping');
+    return;
+  }
+
+  const resource = imitation.resource;
+  if (!resource) {
+    throw new Error(`Resource for imitation ${imitationId} not found`);
+  }
+
+  const now = new Date().toISOString();
+  const claimResult = await db
+    .update(modelEssayImitations)
+    .set({ status: 'correcting', updatedAt: now })
+    .where(
+      and(
+        eq(modelEssayImitations.id, imitationId),
+        inArray(modelEssayImitations.status, ['pending', 'failed']),
+      ),
+    )
+    .returning({ id: modelEssayImitations.id });
+
+  if (claimResult.length === 0) {
+    correctionLogger.warn(
+      { status: imitation.status },
+      'Imitation already claimed by another worker, skipping',
+    );
+    return;
+  }
+
+  try {
+    const router = await aiRouterManager.ensureRouter();
+    const analysis = resource.analysis
+      ? (JSON.parse(resource.analysis) as import('@betterwrite/shared').ModelEssayAnalysis)
+      : undefined;
+    const result = await correctImitation(
+      router,
+      {
+        title: resource.title,
+        content: resource.content,
+        analysis,
+      },
+      { title: imitation.title, content: imitation.content },
+      (resource.stage as 'junior' | 'senior') ?? 'junior',
+    );
+
+    aiProviderCircuitBreaker.recordSuccess();
+
+    await db
+      .update(modelEssayImitations)
+      .set({
+        status: 'completed',
+        score: result.score,
+        feedback: JSON.stringify({
+          overallComment: result.overallComment,
+          strengths: result.strengths,
+          weaknesses: result.weaknesses,
+          suggestions: result.suggestions,
+          dimensionScores: result.dimensionScores,
+          highlightedSentences: result.highlightedSentences,
+        }),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(modelEssayImitations.id, imitationId));
+
+    correctionLogger.info({ score: result.score }, 'Model essay imitation corrected');
+  } catch (error) {
+    aiProviderCircuitBreaker.recordFailure();
+    correctionLogger.error({ err: error }, 'Model essay imitation correction failed');
+    try {
+      await db
+        .update(modelEssayImitations)
+        .set({ status: 'failed', updatedAt: new Date().toISOString() })
+        .where(eq(modelEssayImitations.id, imitationId));
+    } catch (rollbackErr) {
+      correctionLogger.error(
+        { err: rollbackErr },
+        '[Worker processModelEssayImitationCorrection] failed to mark imitation as failed',
       );
     }
     throw error;
@@ -573,6 +689,32 @@ async function main(): Promise<void> {
     workerLogger.info({ essayId: job.data.essayId }, 'Correction job completed');
   });
 
+  const imitationWorker = new Worker<ModelEssayImitationJobData>(
+    MODEL_ESSAY_IMITATION_QUEUE,
+    async (job) => {
+      workerLogger.info(
+        { imitationId: job.data.imitationId, attempt: job.attemptsMade + 1 },
+        'Processing model essay imitation correction',
+      );
+      await processModelEssayImitationCorrection({ imitationId: job.data.imitationId });
+    },
+    { connection, concurrency: env.WORKER_CONCURRENCY },
+  );
+
+  imitationWorker.on('failed', (job, err) => {
+    workerLogger.error(
+      { imitationId: job?.data.imitationId, err },
+      'Model essay imitation correction job failed',
+    );
+  });
+
+  imitationWorker.on('completed', (job) => {
+    workerLogger.info(
+      { imitationId: job.data.imitationId },
+      'Model essay imitation correction job completed',
+    );
+  });
+
   const healthServer = createServer(async (req, res) => {
     if (req.url === '/health') {
       let database: 'ok' | 'error' = 'ok';
@@ -591,12 +733,13 @@ async function main(): Promise<void> {
         redis = 'error';
       }
 
-      const ok = worker.isRunning() && database === 'ok' && redis === 'ok';
+      const ok =
+        worker.isRunning() && imitationWorker.isRunning() && database === 'ok' && redis === 'ok';
       res.writeHead(ok ? 200 : 503, { 'Content-Type': 'application/json' });
       res.end(
         JSON.stringify({
           status: ok ? 'ok' : 'error',
-          queue: CORRECTION_QUEUE,
+          queues: [CORRECTION_QUEUE, MODEL_ESSAY_IMITATION_QUEUE],
           database,
           redis,
         }),
@@ -627,6 +770,7 @@ async function main(): Promise<void> {
     clearInterval(schedulerInterval);
     workerLogger.info({ signal }, 'Shutting down worker');
     await worker.close();
+    await imitationWorker.close();
     await aiRouterManager.stop();
     await new Promise<void>((resolve, reject) => {
       healthServer.close((err) => (err ? reject(err) : resolve()));

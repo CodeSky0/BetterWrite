@@ -4,6 +4,9 @@ import {
   CORRECTION_JOB,
   CORRECTION_QUEUE,
   type CorrectionJobData,
+  MODEL_ESSAY_IMITATION_JOB,
+  MODEL_ESSAY_IMITATION_QUEUE,
+  type ModelEssayImitationJobData,
 } from '@betterwrite/shared/queue';
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
@@ -21,6 +24,10 @@ const connection =
 
 export const correctionQueue = connection
   ? new Queue<CorrectionJobData>(CORRECTION_QUEUE, { connection })
+  : null;
+
+export const modelEssayImitationQueue = connection
+  ? new Queue<ModelEssayImitationJobData>(MODEL_ESSAY_IMITATION_QUEUE, { connection })
   : null;
 
 export async function addCorrectionJob(essayId: string): Promise<void> {
@@ -64,4 +71,45 @@ export async function addCorrectionJob(essayId: string): Promise<void> {
     throw err;
   }
   logger.info({ essayId }, 'Correction job queued');
+}
+
+export async function addModelEssayImitationCorrectionJob(imitationId: string): Promise<void> {
+  if (!modelEssayImitationQueue) {
+    throw new Error('Redis 未配置，无法入队仿写批改任务');
+  }
+  try {
+    const existing = await modelEssayImitationQueue.getJob(imitationId);
+    if (existing) {
+      try {
+        await existing.remove();
+      } catch (removeErr) {
+        logger.warn(
+          { imitationId, err: removeErr instanceof Error ? removeErr.message : 'unknown' },
+          'Failed to remove stale imitation correction job (will retry add anyway)',
+        );
+      }
+    }
+    await modelEssayImitationQueue.add(
+      MODEL_ESSAY_IMITATION_JOB,
+      { imitationId },
+      {
+        jobId: imitationId,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 2000 },
+        removeOnComplete: 50,
+        removeOnFail: 100,
+      },
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/already exists|duplicate/i.test(message)) {
+      logger.warn(
+        { imitationId, message },
+        'Imitation correction job already exists, treating as success',
+      );
+      return;
+    }
+    throw err;
+  }
+  logger.info({ imitationId }, 'Model essay imitation correction job queued');
 }

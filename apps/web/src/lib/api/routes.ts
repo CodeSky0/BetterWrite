@@ -5,7 +5,6 @@ import {
   type GrammarResult,
   analyzeModelEssay,
   checkGrammar,
-  correctImitation,
   getSynonyms,
   polishEssay,
   scoreChallenge,
@@ -88,7 +87,6 @@ import type {
   EducationStageValue,
   ErrorBookGroup,
   EssayDraft,
-  ModelEssayAnalysis,
   ModelRouteItem,
   PeerReviewStatusValue,
   PeerReviewWeights,
@@ -118,7 +116,7 @@ import { getAiRouter, invalidateAiRouterCache } from '../ai/router';
 import { memoizeAsync } from './cache';
 import { authMiddleware, hashToken, requireRole } from './middleware';
 import type { AuthVariables } from './middleware';
-import { addCorrectionJob, correctionQueue } from './queue';
+import { addCorrectionJob, addModelEssayImitationCorrectionJob, correctionQueue } from './queue';
 import { resolveClientIp as _resolveClientIp, rateLimit } from './rate-limiter';
 import { getRedis, pingRedis } from './redis';
 
@@ -2998,7 +2996,7 @@ app.post(
         title: data.title ?? null,
         content: data.content,
         wordCount,
-        status: 'correcting',
+        status: 'pending',
         score: null,
         feedback: JSON.stringify({}),
         createdAt: now,
@@ -3006,49 +3004,20 @@ app.post(
       })
       .returning();
 
-    // 异步 AI 批改（不阻塞响应）
-    setTimeout(async () => {
-      try {
-        const router = await getAiRouter();
-        const result = await correctImitation(
-          router,
-          {
-            title: resource.title,
-            content: resource.content,
-            analysis: parseModelEssayAnalysis(resource.analysis) as unknown as
-              | ModelEssayAnalysis
-              | undefined,
-          },
-          { title: data.title ?? null, content: data.content },
-          (resource.stage as EducationStageValue) ?? 'junior',
-        );
-        await db
-          .update(modelEssayImitations)
-          .set({
-            status: 'completed',
-            score: result.score,
-            feedback: JSON.stringify({
-              overallComment: result.overallComment,
-              strengths: result.strengths,
-              weaknesses: result.weaknesses,
-              suggestions: result.suggestions,
-              dimensionScores: result.dimensionScores,
-              highlightedSentences: result.highlightedSentences,
-            }),
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(modelEssayImitations.id, imitationId));
-      } catch (err) {
-        routesLogger.error(
-          { err: err instanceof Error ? err.message : 'unknown', imitationId },
-          '[API imitate correction] failed',
-        );
-        await db
-          .update(modelEssayImitations)
-          .set({ status: 'failed', updatedAt: new Date().toISOString() })
-          .where(eq(modelEssayImitations.id, imitationId));
-      }
-    }, 0);
+    // 异步 AI 批改通过 BullMQ 队列投递，避免 serverless 进程退出导致任务丢失
+    try {
+      await addModelEssayImitationCorrectionJob(imitationId);
+    } catch (enqueueErr) {
+      routesLogger.error(
+        { err: enqueueErr instanceof Error ? enqueueErr.message : 'unknown', imitationId },
+        '[API imitate] failed to enqueue correction job',
+      );
+      // 入队失败时回滚为 pending，让前端可感知并支持重试
+      await db
+        .update(modelEssayImitations)
+        .set({ status: 'failed', updatedAt: new Date().toISOString() })
+        .where(eq(modelEssayImitations.id, imitationId));
+    }
 
     const duration = Date.now() - start;
     routesLogger.info({ userId: user.id, id, imitationId, duration }, '[API imitate] submitted');
