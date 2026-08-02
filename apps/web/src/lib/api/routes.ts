@@ -1639,6 +1639,7 @@ app.put(
 
 // ========== Teacher Classes ==========
 // Bug #229: 教师班级列表无 rateLimit。
+// Bug #PERF-5.1: 添加 60s 缓存，避免频繁加载班级列表 + enrollments JOIN。
 app.get(
   '/teacher/classes',
   rateLimit(60, 60_000),
@@ -1649,17 +1650,19 @@ app.get(
     const user = c.get('user');
     routesLogger.info({ userId: user.id }, '[API /teacher/classes]');
 
-    const myClasses = await db.query.classes.findMany({
-      where: eq(classes.teacherId, user.id),
-      with: { enrollments: true },
-    });
+    const classStats = await memoizeAsync(`teacher_classes:${user.id}`, 60_000, async () => {
+      const myClasses = await db.query.classes.findMany({
+        where: eq(classes.teacherId, user.id),
+        with: { enrollments: true },
+      });
 
-    const classStats = myClasses.map((cls) => ({
-      id: cls.id,
-      name: cls.name,
-      grade: cls.grade,
-      studentCount: (cls.enrollments ?? []).filter((e) => e.role === 'student').length,
-    }));
+      return myClasses.map((cls) => ({
+        id: cls.id,
+        name: cls.name,
+        grade: cls.grade,
+        studentCount: (cls.enrollments ?? []).filter((e) => e.role === 'student').length,
+      }));
+    });
 
     routesLogger.info({ userId: user.id, returning: classStats.length }, '[API /teacher/classes]');
     return c.json({ success: true, data: classStats });
@@ -2078,6 +2081,8 @@ app.get(
 
 // ========== Teacher Students ==========
 // Bug #231: 教师学生列表无 rateLimit；多表 JOIN（users + classEnrollments + essays）。
+// Bug #PERF-5.2: 添加 60s 缓存，避免频繁加载学生列表 + 多表 JOIN。
+// 注意：含 keyword 查询时不使用缓存，因为关键词变化频繁且个性化强。
 app.get(
   '/teacher/students',
   rateLimit(30, 60_000),
@@ -2094,111 +2099,215 @@ app.get(
       '[API /teacher/students]',
     );
 
-    // 确定查询的班级范围（按角色隔离，防止跨校/跨班 IDOR）
-    let targetClassIds: string[] = [];
-    if (classId) {
-      if (!(await assertClassAccess(user, classId))) {
-        return c.json({ success: false, error: '无权访问该班级' }, 403);
+    // 含 keyword 查询不缓存，直接执行
+    if (keyword) {
+      // 确定查询的班级范围（按角色隔离，防止跨校/跨班 IDOR）
+      let targetClassIds: string[] = [];
+      if (classId) {
+        if (!(await assertClassAccess(user, classId))) {
+          return c.json({ success: false, error: '无权访问该班级' }, 403);
+        }
+        targetClassIds = [classId];
+      } else if (user.role === UserRole.TEACHER) {
+        const myClasses = await db.query.classes.findMany({
+          where: eq(classes.teacherId, user.id),
+          columns: { id: true },
+        });
+        targetClassIds = myClasses.map((c) => c.id);
+      } else if (user.role === UserRole.SCHOOL_ADMIN && user.schoolId) {
+        const schoolClasses = await db.query.classes.findMany({
+          where: eq(classes.schoolId, user.schoolId),
+          columns: { id: true },
+        });
+        targetClassIds = schoolClasses.map((c) => c.id);
       }
-      targetClassIds = [classId];
-    } else if (user.role === UserRole.TEACHER) {
-      const myClasses = await db.query.classes.findMany({
-        where: eq(classes.teacherId, user.id),
-        columns: { id: true },
-      });
-      targetClassIds = myClasses.map((c) => c.id);
-    } else if (user.role === UserRole.SCHOOL_ADMIN && user.schoolId) {
-      const schoolClasses = await db.query.classes.findMany({
-        where: eq(classes.schoolId, user.schoolId),
-        columns: { id: true },
-      });
-      targetClassIds = schoolClasses.map((c) => c.id);
-    }
-    // SUPER_ADMIN 且未指定 classId 时 targetClassIds 为空，下方查询全部学生。
+      // SUPER_ADMIN 且未指定 classId 时 targetClassIds 为空，下方查询全部学生。
 
-    // 获取 enrollments
-    const enrollments =
-      targetClassIds.length > 0
-        ? await db.query.classEnrollments.findMany({
-            where: and(
-              inArray(classEnrollments.classId, targetClassIds),
-              eq(classEnrollments.role, 'student'),
-            ),
-            with: { class: { columns: { id: true, name: true, grade: true } } },
-          })
-        : user.role === UserRole.SUPER_ADMIN
+      // 获取 enrollments
+      const enrollments =
+        targetClassIds.length > 0
           ? await db.query.classEnrollments.findMany({
-              where: eq(classEnrollments.role, 'student'),
+              where: and(
+                inArray(classEnrollments.classId, targetClassIds),
+                eq(classEnrollments.role, 'student'),
+              ),
               with: { class: { columns: { id: true, name: true, grade: true } } },
-              limit: 200,
             })
+          : user.role === UserRole.SUPER_ADMIN
+            ? await db.query.classEnrollments.findMany({
+                where: eq(classEnrollments.role, 'student'),
+                with: { class: { columns: { id: true, name: true, grade: true } } },
+                limit: 200,
+              })
+            : [];
+
+      // 获取学生用户信息
+      const studentIds = enrollments.map((e) => e.userId);
+      const students =
+        studentIds.length > 0
+          ? await db.query.users.findMany({ where: inArray(users.id, studentIds) })
           : [];
 
-    // 获取学生用户信息
-    const studentIds = enrollments.map((e) => e.userId);
-    const students =
-      studentIds.length > 0
-        ? await db.query.users.findMany({ where: inArray(users.id, studentIds) })
-        : [];
+      // 获取标签
+      const tags =
+        studentIds.length > 0
+          ? await db.query.studentTags.findMany({ where: inArray(studentTags.studentId, studentIds) })
+          : [];
+      const tagMap = new Map(tags.map((t) => [t.studentId, t.tag]));
 
-    // 获取标签
-    const tags =
-      studentIds.length > 0
-        ? await db.query.studentTags.findMany({ where: inArray(studentTags.studentId, studentIds) })
-        : [];
-    const tagMap = new Map(tags.map((t) => [t.studentId, t.tag]));
-
-    // Bug #PERF-2.1: 改用 SQL GROUP BY 聚合，避免加载所有学生全部作文到内存。
-    const essayStats = new Map<string, { count: number; avgScore: number | null }>();
-    if (studentIds.length > 0) {
-      const statsRows = await db
-        .select({
-          studentId: essays.studentId,
-          count: count(essays.id),
-          avgScore: sql<number | null>`avg(${essays.totalScore})`,
-        })
-        .from(essays)
-        .where(inArray(essays.studentId, studentIds))
-        .groupBy(essays.studentId);
-      for (const row of statsRows) {
-        essayStats.set(row.studentId, {
-          count: row.count,
-          avgScore: row.avgScore !== null ? Number(row.avgScore) : null,
-        });
+      // Bug #PERF-2.1: 改用 SQL GROUP BY 聚合，避免加载所有学生全部作文到内存。
+      const essayStats = new Map<string, { count: number; avgScore: number | null }>();
+      if (studentIds.length > 0) {
+        const statsRows = await db
+          .select({
+            studentId: essays.studentId,
+            count: count(essays.id),
+            avgScore: sql<number | null>`avg(${essays.totalScore})`,
+          })
+          .from(essays)
+          .where(inArray(essays.studentId, studentIds))
+          .groupBy(essays.studentId);
+        for (const row of statsRows) {
+          essayStats.set(row.studentId, {
+            count: row.count,
+            avgScore: row.avgScore !== null ? Number(row.avgScore) : null,
+          });
+        }
       }
-    }
 
-    // 组装结果并过滤关键词
-    let result = enrollments.map((en) => {
-      const stu = students.find((s) => s.id === en.userId);
-      const stat = essayStats.get(en.userId);
-      return {
-        id: en.userId,
-        name: stu?.name ?? '',
-        email: stu?.email ?? '',
-        studentNo: stu?.studentNo ?? null,
-        classId: en.classId,
-        className: en.class?.name ?? '',
-        grade: en.class?.grade ?? '',
-        tag: tagMap.get(en.userId) ?? null,
-        essayCount: stat?.count ?? 0,
-        averageScore: stat?.avgScore ?? null,
-      };
-    });
+      // 组装结果并过滤关键词
+      let result = enrollments.map((en) => {
+        const stu = students.find((s) => s.id === en.userId);
+        const stat = essayStats.get(en.userId);
+        return {
+          id: en.userId,
+          name: stu?.name ?? '',
+          email: stu?.email ?? '',
+          studentNo: stu?.studentNo ?? null,
+          classId: en.classId,
+          className: en.class?.name ?? '',
+          grade: en.class?.grade ?? '',
+          tag: tagMap.get(en.userId) ?? null,
+          essayCount: stat?.count ?? 0,
+          averageScore: stat?.avgScore ?? null,
+        };
+      });
 
-    if (keyword) {
       result = result.filter(
         (r) =>
           r.name.toLowerCase().includes(keyword) ||
           (r.studentNo ?? '').toLowerCase().includes(keyword) ||
           r.email.toLowerCase().includes(keyword),
       );
+
+      const duration = Date.now() - start;
+      routesLogger.info(
+        { userId: user.id, returning: result.length, duration: duration },
+        '[API /teacher/students] (with keyword)',
+      );
+      return c.json({ success: true, data: result });
     }
+
+    // 无 keyword 时使用缓存
+    const cacheKey = `teacher_students:${user.id}:${classId ?? 'all'}`;
+    const result = await memoizeAsync(cacheKey, 60_000, async () => {
+      // 确定查询的班级范围（按角色隔离，防止跨校/跨班 IDOR）
+      let targetClassIds: string[] = [];
+      if (classId) {
+        if (!(await assertClassAccess(user, classId))) {
+          throw new Error('无权访问该班级');
+        }
+        targetClassIds = [classId];
+      } else if (user.role === UserRole.TEACHER) {
+        const myClasses = await db.query.classes.findMany({
+          where: eq(classes.teacherId, user.id),
+          columns: { id: true },
+        });
+        targetClassIds = myClasses.map((c) => c.id);
+      } else if (user.role === UserRole.SCHOOL_ADMIN && user.schoolId) {
+        const schoolClasses = await db.query.classes.findMany({
+          where: eq(classes.schoolId, user.schoolId),
+          columns: { id: true },
+        });
+        targetClassIds = schoolClasses.map((c) => c.id);
+      }
+      // SUPER_ADMIN 且未指定 classId 时 targetClassIds 为空，下方查询全部学生。
+
+      // 获取 enrollments
+      const enrollments =
+        targetClassIds.length > 0
+          ? await db.query.classEnrollments.findMany({
+              where: and(
+                inArray(classEnrollments.classId, targetClassIds),
+                eq(classEnrollments.role, 'student'),
+              ),
+              with: { class: { columns: { id: true, name: true, grade: true } } },
+            })
+          : user.role === UserRole.SUPER_ADMIN
+            ? await db.query.classEnrollments.findMany({
+                where: eq(classEnrollments.role, 'student'),
+                with: { class: { columns: { id: true, name: true, grade: true } } },
+                limit: 200,
+              })
+            : [];
+
+      // 获取学生用户信息
+      const studentIds = enrollments.map((e) => e.userId);
+      const students =
+        studentIds.length > 0
+          ? await db.query.users.findMany({ where: inArray(users.id, studentIds) })
+          : [];
+
+      // 获取标签
+      const tags =
+        studentIds.length > 0
+          ? await db.query.studentTags.findMany({ where: inArray(studentTags.studentId, studentIds) })
+          : [];
+      const tagMap = new Map(tags.map((t) => [t.studentId, t.tag]));
+
+      // Bug #PERF-2.1: 改用 SQL GROUP BY 聚合，避免加载所有学生全部作文到内存。
+      const essayStats = new Map<string, { count: number; avgScore: number | null }>();
+      if (studentIds.length > 0) {
+        const statsRows = await db
+          .select({
+            studentId: essays.studentId,
+            count: count(essays.id),
+            avgScore: sql<number | null>`avg(${essays.totalScore})`,
+          })
+          .from(essays)
+          .where(inArray(essays.studentId, studentIds))
+          .groupBy(essays.studentId);
+        for (const row of statsRows) {
+          essayStats.set(row.studentId, {
+            count: row.count,
+            avgScore: row.avgScore !== null ? Number(row.avgScore) : null,
+          });
+        }
+      }
+
+      // 组装结果
+      return enrollments.map((en) => {
+        const stu = students.find((s) => s.id === en.userId);
+        const stat = essayStats.get(en.userId);
+        return {
+          id: en.userId,
+          name: stu?.name ?? '',
+          email: stu?.email ?? '',
+          studentNo: stu?.studentNo ?? null,
+          classId: en.classId,
+          className: en.class?.name ?? '',
+          grade: en.class?.grade ?? '',
+          tag: tagMap.get(en.userId) ?? null,
+          essayCount: stat?.count ?? 0,
+          averageScore: stat?.avgScore ?? null,
+        };
+      });
+    });
 
     const duration = Date.now() - start;
     routesLogger.info(
       { userId: user.id, returning: result.length, duration: duration },
-      '[API /teacher/students]',
+      '[API /teacher/students] (cached)',
     );
     return c.json({ success: true, data: result });
   },
@@ -8103,7 +8212,7 @@ app.post(
       if (!studentEssayMap.has(essay.studentId)) {
         studentEssayMap.set(essay.studentId, []);
       }
-      studentEssayMap.get(essay.studentId)!.push(essay.id);
+      studentEssayMap.get(essay.studentId)?.push(essay.id);
     }
     
     // 跟踪每个学生的已分配数量和已分配的作文
