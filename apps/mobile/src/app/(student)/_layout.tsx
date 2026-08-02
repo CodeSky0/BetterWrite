@@ -40,6 +40,13 @@ export default function StudentLayout() {
         }}
       />
       <Tabs.Screen
+        name="peer-review"
+        options={{
+          title: '互评',
+          tabBarIcon: ({ color, size }) => <Ionicons name="people" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
         name="assistant"
         options={{
           title: '助手',

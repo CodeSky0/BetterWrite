@@ -20,6 +20,7 @@ import {
   challengeSubmissions,
   classEnrollments,
   classes,
+  corrections,
   dailyChallenges,
   db,
   deviceTokens,
@@ -70,8 +71,11 @@ import {
   calculateErrorStats,
   calculateProgressCurve,
   calculateScoreDistribution,
+  calculateWeightedScore,
   checkAchievements,
   countWords,
+  getMaxScoreByStage,
+  parsePeerReviewWeights,
 } from '@betterwrite/shared';
 import type { AiAssistantModeValue } from '@betterwrite/shared';
 import type {
@@ -89,7 +93,6 @@ import type {
   EssayDraft,
   ModelRouteItem,
   PeerReviewStatusValue,
-  PeerReviewWeights,
   PracticeExercise,
   QuestionBankItem,
   SchoolStats,
@@ -1202,8 +1205,8 @@ app.get(
 const essayReviewSchema = z
   .object({
     teacherReview: z.string().min(1, '评语不能为空').max(2000, '评语过长').optional(),
-    // 作文满分 15 分；教师评分应在此区间（Bug #4 修复）。
-    teacherScore: z.number().min(0, '分数不能小于0').max(15, '分数不能大于15').optional(),
+    // 教师评分使用百分制，后端按学段满分归一化后参与加权。
+    teacherScore: z.number().min(0, '分数不能小于0').max(100, '分数不能大于100').optional(),
   })
   .refine((d) => d.teacherReview !== undefined || d.teacherScore !== undefined, {
     message: '至少需要提供评语或分数',
@@ -1265,8 +1268,18 @@ app.put(
       .where(eq(essays.id, id))
       .returning();
 
-    routesLogger.info({ essayId: id }, '[API PUT /essays/:id/review] review saved');
-    return c.json({ success: true, data: updated });
+    await recalculateEssayTotalScore(id);
+
+    const finalEssay = await db.query.essays.findFirst({
+      where: eq(essays.id, id),
+      with: { task: true, student: { columns: { id: true, schoolId: true } } },
+    });
+
+    routesLogger.info(
+      { essayId: id, totalScore: finalEssay?.totalScore ?? null },
+      '[API PUT /essays/:id/review] review saved and score recalculated',
+    );
+    return c.json({ success: true, data: finalEssay ?? updated });
   },
 );
 
@@ -7762,20 +7775,6 @@ app.delete(
 
 // ========== Feature 12: Peer Review ==========
 
-function parsePeerReviewWeights(weights: string | null): PeerReviewWeights {
-  if (!weights) return { ai: 0.6, teacher: 0.3, peer: 0.1 };
-  try {
-    const parsed = JSON.parse(weights) as Partial<PeerReviewWeights>;
-    return {
-      ai: typeof parsed.ai === 'number' ? parsed.ai : 0.6,
-      teacher: typeof parsed.teacher === 'number' ? parsed.teacher : 0.3,
-      peer: typeof parsed.peer === 'number' ? parsed.peer : 0.1,
-    };
-  } catch {
-    return { ai: 0.6, teacher: 0.3, peer: 0.1 };
-  }
-}
-
 function parseGuidingQuestions(raw: string | null): Array<{ id: string; text: string }> {
   if (!raw) return DefaultPeerReviewQuestions;
   try {
@@ -7839,6 +7838,81 @@ function toPeerReviewConfigResponse(row: typeof essayPeerReviewConfigs.$inferSel
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+/**
+ * 重新计算作文加权总分。
+ * 触发时机：AI 批改完成、教师复核评分、同伴互评提交。
+ */
+async function recalculateEssayTotalScore(essayId: string): Promise<void> {
+  const essay = await db.query.essays.findFirst({
+    where: eq(essays.id, essayId),
+    with: { task: true },
+  });
+  if (!essay) return;
+
+  const correction = await db.query.corrections.findFirst({
+    where: eq(corrections.essayId, essayId),
+  });
+
+  const stage = (essay.stage as EducationStageValue) ?? 'junior';
+  const seniorEssayType =
+    (essay.task?.seniorEssayType as import('@betterwrite/shared').SeniorEssayTypeValue) ??
+    undefined;
+  const maxScore = getMaxScoreByStage(stage, seniorEssayType);
+
+  const configRows = essay.taskId
+    ? await db
+        .select({ weights: essayPeerReviewConfigs.weights })
+        .from(essayPeerReviewConfigs)
+        .where(eq(essayPeerReviewConfigs.taskId, essay.taskId))
+        .limit(1)
+    : [];
+  const weights = parsePeerReviewWeights(configRows[0]?.weights ?? null);
+
+  const completedPeerRows = await db
+    .select({ totalScore: peerReviews.totalScore })
+    .from(peerReviews)
+    .where(
+      and(eq(peerReviews.essayId, essayId), eq(peerReviews.status, PeerReviewStatus.COMPLETED)),
+    );
+  const peerAverage =
+    completedPeerRows.length > 0
+      ? completedPeerRows.reduce((sum, r) => sum + (r.totalScore ?? 0), 0) /
+        completedPeerRows.length
+      : null;
+
+  const weighted = calculateWeightedScore({
+    aiScore: correction?.totalScore ?? null,
+    teacherScore: essay.teacherScore,
+    peerAverage,
+    weights,
+    maxScore,
+    stage,
+  });
+  if (!weighted) return;
+
+  await db
+    .update(essays)
+    .set({
+      totalScore: weighted.totalScore,
+      scoreTier: weighted.scoreTier,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(essays.id, essayId));
+
+  routesLogger.info(
+    {
+      essayId,
+      aiScore: correction?.totalScore ?? null,
+      teacherScore: essay.teacherScore,
+      peerAverage,
+      weights,
+      totalScore: weighted.totalScore,
+      scoreTier: weighted.scoreTier,
+    },
+    '[PeerReview] essay total score recalculated',
+  );
 }
 
 function calculateTotalScore(scores: {
@@ -8306,8 +8380,10 @@ app.post(
       })
       .where(eq(peerReviews.id, id));
 
-    // 如果任务配置了权重且所有互评已完成，可重新计算作文总分（异步或同步）
-    // 这里仅更新互评记录，最终得分在教师复核时统一计算
+    // 互评提交后重新计算该作文的加权总分。
+    if (review.essayId) {
+      await recalculateEssayTotalScore(review.essayId);
+    }
 
     const updated = await db.query.peerReviews.findFirst({
       where: eq(peerReviews.id, id),

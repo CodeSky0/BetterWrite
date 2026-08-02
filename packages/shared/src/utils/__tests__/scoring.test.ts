@@ -6,7 +6,9 @@ import {
   calculateErrorStats,
   calculateProgressCurve,
   calculateScoreDistribution,
+  calculateWeightedScore,
   checkAchievements,
+  parsePeerReviewWeights,
 } from '../index.js';
 
 describe('getScoreTier', () => {
@@ -243,5 +245,80 @@ describe('checkAchievements', () => {
       errorFreeEssays: 0,
     });
     expect(codes).toEqual([]);
+  });
+});
+
+describe('calculateWeightedScore', () => {
+  it('calculates junior weighted score with all sources', () => {
+    const result = calculateWeightedScore({
+      aiScore: 12,
+      teacherScore: 80,
+      peerAverage: 70,
+      weights: { ai: 0.6, teacher: 0.3, peer: 0.1 },
+      maxScore: 15,
+      stage: 'junior',
+    });
+    expect(result).not.toBeNull();
+    expect(result?.totalScore).toBe(11.9);
+    expect(result?.scoreTier).toBe('2nd');
+  });
+
+  it('normalizes senior scores to 25-point scale', () => {
+    const result = calculateWeightedScore({
+      aiScore: 20,
+      teacherScore: 80,
+      peerAverage: 70,
+      weights: { ai: 0.6, teacher: 0.3, peer: 0.1 },
+      maxScore: 25,
+      stage: 'senior',
+    });
+    expect(result?.totalScore).toBe(19.8);
+    expect(result?.scoreTier).toBe('4th');
+  });
+
+  it('redistributes weights when a source is missing', () => {
+    const result = calculateWeightedScore({
+      aiScore: 12,
+      peerAverage: 70,
+      weights: { ai: 0.6, teacher: 0.3, peer: 0.1 },
+      maxScore: 15,
+      stage: 'junior',
+    });
+    expect(result?.totalScore).toBe(11.8);
+  });
+
+  it('returns null when no scores are available', () => {
+    const result = calculateWeightedScore({
+      weights: { ai: 0.6, teacher: 0.3, peer: 0.1 },
+      maxScore: 15,
+      stage: 'junior',
+    });
+    expect(result).toBeNull();
+  });
+});
+
+describe('parsePeerReviewWeights', () => {
+  it('parses valid JSON weights', () => {
+    expect(parsePeerReviewWeights('{"ai":0.5,"teacher":0.3,"peer":0.2}')).toEqual({
+      ai: 0.5,
+      teacher: 0.3,
+      peer: 0.2,
+    });
+  });
+
+  it('falls back to defaults for invalid JSON', () => {
+    expect(parsePeerReviewWeights('not-json')).toEqual({
+      ai: 0.6,
+      teacher: 0.3,
+      peer: 0.1,
+    });
+  });
+
+  it('fills missing fields with defaults', () => {
+    expect(parsePeerReviewWeights('{"ai":0.8}')).toEqual({
+      ai: 0.8,
+      teacher: 0.3,
+      peer: 0.1,
+    });
   });
 });

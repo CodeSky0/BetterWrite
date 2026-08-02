@@ -47,11 +47,14 @@ export default function TaskWritePage() {
   const wordCount = useMemo(() => countWords(content), [content]);
   const durationMs = 0; // Simplified for mobile v1
 
-  useEffect(() => {
+  const loadTask = useCallback(() => {
     if (isStandalone) {
       setTask(null);
+      setTaskLoading(false);
       return;
     }
+    setTaskLoading(true);
+    setTaskError(null);
     fetcher
       .getTask(id)
       .then((res) => {
@@ -64,6 +67,10 @@ export default function TaskWritePage() {
       .catch((err) => setTaskError(err instanceof Error ? err.message : '获取任务失败'))
       .finally(() => setTaskLoading(false));
   }, [id, isStandalone]);
+
+  useEffect(() => {
+    loadTask();
+  }, [loadTask]);
 
   useEffect(() => {
     if (draftRestored) return;
@@ -143,7 +150,20 @@ export default function TaskWritePage() {
   }, []);
 
   if (taskLoading) return <Loading fullScreen colors={colors} />;
-  if (taskError) return <Loading fullScreen colors={colors} />;
+  if (taskError) {
+    return (
+      <View
+        style={[styles.container, styles.centerContainer, { backgroundColor: colors.bgPrimary }]}
+      >
+        <Text style={[styles.errorTitle, { color: colors.error }]}>加载失败</Text>
+        <Text style={[styles.errorDetail, { color: colors.textSecondary }]}>{taskError}</Text>
+        <View style={styles.errorActions}>
+          <Button title="重试" onPress={loadTask} colors={colors} />
+          <Button title="返回" variant="outline" onPress={() => router.back()} colors={colors} />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -353,5 +373,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 12,
+  },
+  centerContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    gap: 12,
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  errorDetail: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  errorActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
   },
 });

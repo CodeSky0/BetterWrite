@@ -37,7 +37,7 @@ import {
   WritingMaterialTypeLabels,
   type WritingMaterialTypeValue,
 } from '@betterwrite/shared';
-import { Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 const PAGE_SIZE = 20;
@@ -72,6 +72,9 @@ export default function TeacherMaterialsPage() {
   const [page, setPage] = useState(1);
   const [keyword, setKeyword] = useState('');
   const [type, setType] = useState<string>('');
+  const [topicType, setTopicType] = useState<string>('');
+  const [difficulty, setDifficulty] = useState<string>('');
+  const [stage, setStage] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -90,6 +93,9 @@ export default function TeacherMaterialsPage() {
       .getWritingMaterials({
         keyword: keyword || undefined,
         type: type || undefined,
+        topicType: topicType || undefined,
+        difficulty: difficulty || undefined,
+        stage: stage || undefined,
         page,
         pageSize: PAGE_SIZE,
       })
@@ -112,7 +118,7 @@ export default function TeacherMaterialsPage() {
     return () => {
       cancelled = true;
     };
-  }, [keyword, type, page]);
+  }, [keyword, type, topicType, difficulty, stage, page]);
 
   useEffect(() => {
     return loadMaterials();
@@ -223,7 +229,70 @@ export default function TeacherMaterialsPage() {
                     ))}
                   </select>
                 </div>
-                <div className="flex flex-col gap-1 flex-1 min-w-[240px]">
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="admin-material-topic" className="text-label-12 text-neutral-7">
+                    话题
+                  </label>
+                  <select
+                    id="admin-material-topic"
+                    value={topicType}
+                    onChange={(e) => {
+                      setTopicType(e.target.value);
+                      setPage(1);
+                    }}
+                    className="h-10 rounded-md ring-1 ring-border bg-paper px-3 text-copy-14 text-neutral-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    <option value="">全部</option>
+                    {Object.entries(TopicTypeLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label
+                    htmlFor="admin-material-difficulty"
+                    className="text-label-12 text-neutral-7"
+                  >
+                    难度
+                  </label>
+                  <select
+                    id="admin-material-difficulty"
+                    value={difficulty}
+                    onChange={(e) => {
+                      setDifficulty(e.target.value);
+                      setPage(1);
+                    }}
+                    className="h-10 rounded-md ring-1 ring-border bg-paper px-3 text-copy-14 text-neutral-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    <option value="">全部</option>
+                    {Object.entries(WritingMaterialDifficultyLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="admin-material-stage" className="text-label-12 text-neutral-7">
+                    学段
+                  </label>
+                  <select
+                    id="admin-material-stage"
+                    value={stage}
+                    onChange={(e) => {
+                      setStage(e.target.value);
+                      setPage(1);
+                    }}
+                    className="h-10 rounded-md ring-1 ring-border bg-paper px-3 text-copy-14 text-neutral-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    <option value="">全部</option>
+                    <option value="junior">初中</option>
+                    <option value="senior">高中</option>
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
                   <label htmlFor="admin-material-keyword" className="text-label-12 text-neutral-7">
                     关键词
                   </label>
@@ -241,6 +310,23 @@ export default function TeacherMaterialsPage() {
                     />
                   </div>
                 </div>
+                {(type || topicType || difficulty || stage || keyword) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setType('');
+                      setTopicType('');
+                      setDifficulty('');
+                      setStage('');
+                      setKeyword('');
+                      setPage(1);
+                    }}
+                  >
+                    <X className="w-4 h-4 mr-1" />
+                    重置
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -311,6 +397,10 @@ export default function TeacherMaterialsPage() {
                       ))}
                     </div>
                   )}
+                  <div className="flex items-center justify-between mt-4 text-label-12 text-neutral-7">
+                    <span>创建于 {new Date(m.createdAt).toLocaleDateString('zh-CN')}</span>
+                    <span>引用 {m.usageCount} 次</span>
+                  </div>
                 </CardContent>
               </Card>
             ))}

@@ -16,6 +16,9 @@ import type {
   EssayDraft,
   EssayTask,
   ImportResult,
+  PeerReview,
+  PeerReviewSummary,
+  PeerReviewWithEssay,
   PracticeExercise,
   QuestionBankItem,
   StudentAnalytics,
@@ -511,5 +514,30 @@ export const fetcher = {
   unfavoriteWritingMaterial: (id: string) =>
     request<ApiResponse<{ isFavorited: boolean }>>(`/api/writing-materials/${id}/favorite`, {
       method: 'DELETE',
+    }),
+
+  // ========== Feature 12: Peer Review ==========
+  getPendingPeerReviews: () =>
+    request<ApiResponse<PeerReviewWithEssay[]>>('/api/peer-reviews/pending'),
+
+  getMyEssayPeerReviews: (essayId: string) =>
+    request<ApiResponse<{ reviews: PeerReview[]; summary: PeerReviewSummary }>>(
+      `/api/peer-reviews/my-essay/${essayId}`,
+    ),
+
+  submitPeerReview: (
+    id: string,
+    data: {
+      contentScore: number;
+      languageScore: number;
+      structureScore: number;
+      handwritingScore: number;
+      comment?: string;
+      answers?: Array<{ questionId: string; answer: string }>;
+    },
+  ) =>
+    request<ApiResponse<PeerReview>>(`/api/peer-reviews/${id}/submit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
     }),
 };

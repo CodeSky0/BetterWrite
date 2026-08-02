@@ -8,13 +8,21 @@ import {
   dailyChallenges,
   db,
   deviceTokens,
+  essayPeerReviewConfigs,
   essayTasks,
   essays,
   modelEssayImitations,
   notificationLogs,
+  peerReviews,
   users,
 } from '@betterwrite/db';
-import { getScoreTier } from '@betterwrite/shared';
+import {
+  calculateWeightedScore,
+  getMaxScoreByStage,
+  getScoreTier,
+  parsePeerReviewWeights,
+} from '@betterwrite/shared';
+import type { EducationStageValue } from '@betterwrite/shared';
 import { env } from '@betterwrite/shared/env';
 import { logger } from '@betterwrite/shared/logger';
 import {
@@ -204,12 +212,49 @@ export async function processCorrection(job: CorrectionJob): Promise<void> {
         createdAt: now,
       });
 
+      // 若任务配置了同伴互评权重，则 AI 批改后按权重合成最终总分。
+      const stage = (essay.stage as EducationStageValue) ?? 'junior';
+      const seniorEssayType =
+        (essay.task?.seniorEssayType as import('@betterwrite/shared').SeniorEssayTypeValue) ??
+        undefined;
+      const maxScore = getMaxScoreByStage(stage, seniorEssayType);
+
+      const configRows = essay.taskId
+        ? await tx
+            .select({ weights: essayPeerReviewConfigs.weights })
+            .from(essayPeerReviewConfigs)
+            .where(eq(essayPeerReviewConfigs.taskId, essay.taskId))
+            .limit(1)
+        : [];
+      const weights = parsePeerReviewWeights(configRows[0]?.weights ?? null);
+
+      const completedPeerRows = await tx
+        .select({ totalScore: peerReviews.totalScore })
+        .from(peerReviews)
+        .where(and(eq(peerReviews.essayId, essayId), eq(peerReviews.status, 'completed')));
+      const peerAverage =
+        completedPeerRows.length > 0
+          ? completedPeerRows.reduce((sum, r) => sum + (r.totalScore ?? 0), 0) /
+            completedPeerRows.length
+          : null;
+
+      const weighted = calculateWeightedScore({
+        aiScore: result.totalScore,
+        teacherScore: essay.teacherScore,
+        peerAverage,
+        weights,
+        maxScore,
+        stage,
+      });
+      const finalTotalScore = weighted?.totalScore ?? result.totalScore;
+      const finalScoreTier = weighted?.scoreTier ?? result.scoreTier;
+
       const updated = await tx
         .update(essays)
         .set({
           status: 'completed',
-          totalScore: result.totalScore,
-          scoreTier: result.scoreTier,
+          totalScore: finalTotalScore,
+          scoreTier: finalScoreTier,
           correctionId,
           correctedAt: now,
           updatedAt: now,
@@ -219,6 +264,18 @@ export async function processCorrection(job: CorrectionJob): Promise<void> {
       if (updated.rowsAffected === 0) {
         throw new Error(`Essay ${essayId} was not in 'correcting' state, aborting`);
       }
+
+      correctionLogger.info(
+        {
+          aiScore: result.totalScore,
+          teacherScore: essay.teacherScore,
+          peerAverage,
+          weights,
+          finalTotalScore,
+          finalScoreTier,
+        },
+        'Essay weighted score calculated',
+      );
     });
 
     correctionLogger.info(
