@@ -8212,7 +8212,7 @@ app.post(
       if (!studentEssayMap.has(essay.studentId)) {
         studentEssayMap.set(essay.studentId, []);
       }
-      studentEssayMap.get(essay.studentId)!.push(essay.id);
+      studentEssayMap.get(essay.studentId)?.push(essay.id);
     }
     
     // 跟踪每个学生的已分配数量和已分配的作文
