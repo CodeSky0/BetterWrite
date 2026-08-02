@@ -111,6 +111,12 @@ const navItems: NavItem[] = [
     roles: [UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN],
   },
   {
+    href: '/teacher/model-essays/statistics',
+    label: '范文统计',
+    icon: <BarChart3 className="w-4 h-4" />,
+    roles: [UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN],
+  },
+  {
     href: '/teacher/materials',
     label: '写作素材',
     icon: <Library className="w-4 h-4" />,
@@ -143,6 +149,12 @@ const navItems: NavItem[] = [
   {
     href: '/student/essays',
     label: '我的作文',
+    icon: <BookOpen className="w-4 h-4" />,
+    roles: [UserRole.STUDENT],
+  },
+  {
+    href: '/student/model-essays',
+    label: '范文精读',
     icon: <BookOpen className="w-4 h-4" />,
     roles: [UserRole.STUDENT],
   },

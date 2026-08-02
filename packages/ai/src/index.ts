@@ -15,3 +15,9 @@ export {
 } from './dynamic-router.js';
 export * from './assistant.js';
 export * from './assistants/schemas.js';
+export {
+  analyzeModelEssay,
+  correctImitation,
+  type ModelEssayAnalysis,
+  type ModelEssayImitationFeedback,
+} from './model-essay.js';

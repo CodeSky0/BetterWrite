@@ -3,7 +3,9 @@ import { lucia } from '@/lib/auth';
 import { decrypt, encrypt, maskKey } from '@/lib/crypto';
 import {
   type GrammarResult,
+  analyzeModelEssay,
   checkGrammar,
+  correctImitation,
   getSynonyms,
   polishEssay,
   scoreChallenge,
@@ -34,6 +36,7 @@ import {
   microExercises,
   microSkillProgress,
   microSkills,
+  modelEssayImitations,
   modelRoutes,
   notificationLogs,
   peerReviews,
@@ -85,6 +88,7 @@ import type {
   EducationStageValue,
   ErrorBookGroup,
   EssayDraft,
+  ModelEssayAnalysis,
   ModelRouteItem,
   PeerReviewStatusValue,
   PeerReviewWeights,
@@ -2789,6 +2793,363 @@ app.delete(
       '[API DELETE /teacher/resources/:id]',
     );
     return c.json({ success: true });
+  },
+);
+
+// ========== Model Essay Close Reading & Imitation ==========
+
+function parseModelEssayAnalysis(value: string | null | undefined) {
+  try {
+    const parsed = JSON.parse(value ?? '{}');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function toTeachingResourceWithAnalysis(
+  r: typeof teachingResources.$inferSelect,
+): Record<string, unknown> {
+  return {
+    ...r,
+    tags: safeJsonArray(r.tags),
+    analysis: parseModelEssayAnalysis(r.analysis),
+  };
+}
+
+// POST /teacher/resources/:id/analyze - 教师触发 AI 范文解析
+app.post(
+  '/teacher/resources/:id/analyze',
+  rateLimit(10, 60_000),
+  rateLimit(100, 24 * 60 * 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN),
+  async (c) => {
+    const user = c.get('user');
+    const id = c.req.param('id');
+    const start = Date.now();
+    routesLogger.info({ userId: user.id, id }, '[API POST /teacher/resources/:id/analyze]');
+
+    const existing = await db.query.teachingResources.findFirst({
+      where: eq(teachingResources.id, id),
+    });
+    if (!existing) return c.json({ success: false, error: '资源不存在' }, 404);
+    if (existing.type !== TeachingResourceType.SAMPLE) {
+      return c.json({ success: false, error: '仅范文类型资源支持解析' }, 400);
+    }
+
+    if (user.role === UserRole.TEACHER && existing.createdBy !== user.id) {
+      return c.json({ success: false, error: '无权解析他人的资源' }, 403);
+    }
+    if (user.role === UserRole.SCHOOL_ADMIN) {
+      const creator = await db.query.users.findFirst({
+        where: eq(users.id, existing.createdBy),
+        columns: { schoolId: true },
+      });
+      if (!creator || creator.schoolId !== user.schoolId) {
+        return c.json({ success: false, error: '无权解析其他学校的资源' }, 403);
+      }
+    }
+
+    const router = await getAiRouter();
+    try {
+      const analysis = await analyzeModelEssay(
+        router,
+        existing.content,
+        existing.title,
+        existing.topicType,
+        (existing.stage as EducationStageValue) ?? 'junior',
+      );
+      const now = new Date().toISOString();
+      const [updated] = await db
+        .update(teachingResources)
+        .set({ analysis: JSON.stringify(analysis), updatedAt: now })
+        .where(eq(teachingResources.id, id))
+        .returning();
+      const duration = Date.now() - start;
+      routesLogger.info({ userId: user.id, id, duration }, '[API analyze model essay] done');
+      return c.json({ success: true, data: toTeachingResourceWithAnalysis(updated) });
+    } catch (err) {
+      routesLogger.error(
+        { err: err instanceof Error ? err.message : 'unknown', userId: user.id, id },
+        '[API analyze model essay] failed',
+      );
+      return c.json({ success: false, error: 'AI 解析失败，请稍后重试' }, 500);
+    }
+  },
+);
+
+// GET /student/model-essays - 学生范文列表
+app.get(
+  '/student/model-essays',
+  rateLimit(60, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  async (c) => {
+    const user = c.get('user');
+    const topicType = c.req.query('topicType');
+    const difficulty = c.req.query('difficulty');
+    const limit = parsePositiveInt(c.req.query('limit'), 50, 200);
+    routesLogger.info({ userId: user.id }, '[API /student/model-essays]');
+
+    const conditions: ReturnType<typeof eq>[] = [
+      eq(teachingResources.type, TeachingResourceType.SAMPLE),
+    ];
+    if (topicType) conditions.push(eq(teachingResources.topicType, topicType));
+    if (difficulty) conditions.push(eq(teachingResources.difficulty, difficulty));
+
+    const list = await db.query.teachingResources.findMany({
+      where: and(...conditions),
+      orderBy: desc(teachingResources.createdAt),
+      limit: Math.min(limit, 200),
+      with: { creator: { columns: { id: true, name: true } } },
+    });
+
+    return c.json({
+      success: true,
+      data: list.map((r) => toTeachingResourceWithAnalysis(r)),
+    });
+  },
+);
+
+// GET /student/model-essays/:id - 学生范文详情（含解析）
+app.get(
+  '/student/model-essays/:id',
+  rateLimit(60, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  async (c) => {
+    const user = c.get('user');
+    const id = c.req.param('id');
+    routesLogger.info({ userId: user.id, id }, '[API /student/model-essays/:id]');
+
+    const resource = await db.query.teachingResources.findFirst({
+      where: and(
+        eq(teachingResources.id, id),
+        eq(teachingResources.type, TeachingResourceType.SAMPLE),
+      ),
+      with: { creator: { columns: { id: true, name: true } } },
+    });
+    if (!resource) return c.json({ success: false, error: '范文不存在' }, 404);
+
+    const imitations = await db.query.modelEssayImitations.findMany({
+      where: and(
+        eq(modelEssayImitations.resourceId, id),
+        eq(modelEssayImitations.studentId, user.id),
+      ),
+      orderBy: desc(modelEssayImitations.createdAt),
+      limit: 10,
+    });
+
+    return c.json({
+      success: true,
+      data: {
+        resource: toTeachingResourceWithAnalysis(resource),
+        myImitations: imitations.map((i) => ({
+          ...i,
+          feedback: safeJsonObject(i.feedback),
+        })),
+      },
+    });
+  },
+);
+
+// POST /student/model-essays/:id/imitate - 提交仿写
+app.post(
+  '/student/model-essays/:id/imitate',
+  rateLimit(20, 60_000),
+  rateLimit(100, 24 * 60 * 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  zValidator(
+    'json',
+    z.object({
+      title: z.string().optional(),
+      content: z.string().min(1, '请输入仿写内容'),
+    }),
+  ),
+  async (c) => {
+    const user = c.get('user');
+    const id = c.req.param('id');
+    const data = c.req.valid('json');
+    const start = Date.now();
+    routesLogger.info({ userId: user.id, id }, '[API POST /student/model-essays/:id/imitate]');
+
+    const resource = await db.query.teachingResources.findFirst({
+      where: and(
+        eq(teachingResources.id, id),
+        eq(teachingResources.type, TeachingResourceType.SAMPLE),
+      ),
+    });
+    if (!resource) return c.json({ success: false, error: '范文不存在' }, 404);
+
+    const wordCount = countWords(data.content);
+    const now = new Date().toISOString();
+    const imitationId = randomUUID();
+    const [imitation] = await db
+      .insert(modelEssayImitations)
+      .values({
+        id: imitationId,
+        resourceId: id,
+        studentId: user.id,
+        title: data.title ?? null,
+        content: data.content,
+        wordCount,
+        status: 'correcting',
+        score: null,
+        feedback: JSON.stringify({}),
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+
+    // 异步 AI 批改（不阻塞响应）
+    setTimeout(async () => {
+      try {
+        const router = await getAiRouter();
+        const result = await correctImitation(
+          router,
+          {
+            title: resource.title,
+            content: resource.content,
+            analysis: parseModelEssayAnalysis(resource.analysis) as unknown as
+              | ModelEssayAnalysis
+              | undefined,
+          },
+          { title: data.title ?? null, content: data.content },
+          (resource.stage as EducationStageValue) ?? 'junior',
+        );
+        await db
+          .update(modelEssayImitations)
+          .set({
+            status: 'completed',
+            score: result.score,
+            feedback: JSON.stringify({
+              overallComment: result.overallComment,
+              strengths: result.strengths,
+              weaknesses: result.weaknesses,
+              suggestions: result.suggestions,
+              dimensionScores: result.dimensionScores,
+              highlightedSentences: result.highlightedSentences,
+            }),
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(modelEssayImitations.id, imitationId));
+      } catch (err) {
+        routesLogger.error(
+          { err: err instanceof Error ? err.message : 'unknown', imitationId },
+          '[API imitate correction] failed',
+        );
+        await db
+          .update(modelEssayImitations)
+          .set({ status: 'failed', updatedAt: new Date().toISOString() })
+          .where(eq(modelEssayImitations.id, imitationId));
+      }
+    }, 0);
+
+    const duration = Date.now() - start;
+    routesLogger.info({ userId: user.id, id, imitationId, duration }, '[API imitate] submitted');
+    return c.json({
+      success: true,
+      data: {
+        ...imitation,
+        feedback: safeJsonObject(imitation.feedback),
+      },
+    });
+  },
+);
+
+// GET /student/model-essays/:id/imitations - 查询我的仿写
+app.get(
+  '/student/model-essays/:id/imitations',
+  rateLimit(60, 60_000),
+  authMiddleware,
+  requireRole(UserRole.STUDENT),
+  async (c) => {
+    const user = c.get('user');
+    const id = c.req.param('id');
+    routesLogger.info({ userId: user.id, id }, '[API /student/model-essays/:id/imitations]');
+
+    const list = await db.query.modelEssayImitations.findMany({
+      where: and(
+        eq(modelEssayImitations.resourceId, id),
+        eq(modelEssayImitations.studentId, user.id),
+      ),
+      orderBy: desc(modelEssayImitations.createdAt),
+      limit: 50,
+    });
+
+    return c.json({
+      success: true,
+      data: list.map((i) => ({ ...i, feedback: safeJsonObject(i.feedback) })),
+    });
+  },
+);
+
+// GET /teacher/model-essays/:id/statistics - 教师查看某范文的学生仿写统计
+app.get(
+  '/teacher/model-essays/:id/statistics',
+  rateLimit(30, 60_000),
+  authMiddleware,
+  requireRole(UserRole.TEACHER, UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN),
+  async (c) => {
+    const user = c.get('user');
+    const id = c.req.param('id');
+    routesLogger.info({ userId: user.id, id }, '[API /teacher/model-essays/:id/statistics]');
+
+    const resource = await db.query.teachingResources.findFirst({
+      where: eq(teachingResources.id, id),
+    });
+    if (!resource) return c.json({ success: false, error: '范文不存在' }, 404);
+    if (resource.type !== TeachingResourceType.SAMPLE) {
+      return c.json({ success: false, error: '仅范文类型资源支持统计' }, 400);
+    }
+
+    if (user.role === UserRole.TEACHER && resource.createdBy !== user.id) {
+      return c.json({ success: false, error: '无权查看他人的资源统计' }, 403);
+    }
+    if (user.role === UserRole.SCHOOL_ADMIN) {
+      const creator = await db.query.users.findFirst({
+        where: eq(users.id, resource.createdBy),
+        columns: { schoolId: true },
+      });
+      if (!creator || creator.schoolId !== user.schoolId) {
+        return c.json({ success: false, error: '无权查看其他学校的资源统计' }, 403);
+      }
+    }
+
+    const imitations = await db.query.modelEssayImitations.findMany({
+      where: eq(modelEssayImitations.resourceId, id),
+      with: { student: { columns: { id: true, name: true, studentNo: true } } },
+      orderBy: desc(modelEssayImitations.createdAt),
+      limit: 500,
+    });
+
+    const completed = imitations.filter((i) => i.status === 'completed');
+    const avgScore =
+      completed.length > 0
+        ? Math.round(completed.reduce((sum, i) => sum + (i.score ?? 0), 0) / completed.length)
+        : null;
+
+    return c.json({
+      success: true,
+      data: {
+        resource: toTeachingResourceWithAnalysis(resource),
+        total: imitations.length,
+        completed: completed.length,
+        correcting: imitations.filter((i) => i.status === 'correcting').length,
+        failed: imitations.filter((i) => i.status === 'failed').length,
+        averageScore: avgScore,
+        submissions: imitations.map((i) => ({
+          ...i,
+          feedback: safeJsonObject(i.feedback),
+          student: i.student ?? undefined,
+        })),
+      },
+    });
   },
 );
 

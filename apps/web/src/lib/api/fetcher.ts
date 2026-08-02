@@ -25,6 +25,7 @@ import type {
   MicroExercise,
   MicroExerciseResult,
   MicroSkill,
+  ModelEssayImitation,
   ModelRouteItem,
   NotificationLog,
   PeerReview,
@@ -981,4 +982,56 @@ export const fetcher = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  // ========== Feature P1 F5: 范文精读与仿写 ==========
+  analyzeModelEssayResource: (id: string) =>
+    request<ApiResponse<TeachingResourceWithCreator>>(`/api/teacher/resources/${id}/analyze`, {
+      method: 'POST',
+    }),
+
+  listStudentModelEssays: (params?: {
+    topicType?: string;
+    difficulty?: string;
+    limit?: number;
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.topicType) query.set('topicType', params.topicType);
+    if (params?.difficulty) query.set('difficulty', params.difficulty);
+    if (params?.limit !== undefined) query.set('limit', String(params.limit));
+    const qs = query.toString();
+    return request<ApiResponse<TeachingResourceWithCreator[]>>(
+      `/api/student/model-essays${qs ? `?${qs}` : ''}`,
+    );
+  },
+
+  getStudentModelEssay: (id: string) =>
+    request<
+      ApiResponse<{ resource: TeachingResourceWithCreator; myImitations: ModelEssayImitation[] }>
+    >(`/api/student/model-essays/${id}`),
+
+  submitModelEssayImitation: (id: string, data: { title?: string; content: string }) =>
+    request<ApiResponse<ModelEssayImitation>>(`/api/student/model-essays/${id}/imitate`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  listModelEssayImitations: (id: string) =>
+    request<ApiResponse<ModelEssayImitation[]>>(`/api/student/model-essays/${id}/imitations`),
+
+  getTeacherModelEssayStatistics: (id: string) =>
+    request<
+      ApiResponse<{
+        resource: TeachingResourceWithCreator;
+        total: number;
+        completed: number;
+        correcting: number;
+        failed: number;
+        averageScore: number | null;
+        submissions: Array<
+          ModelEssayImitation & {
+            student?: { id: string; name: string; studentNo: string | null } | null;
+          }
+        >;
+      }>
+    >(`/api/teacher/model-essays/${id}/statistics`),
 };
