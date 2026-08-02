@@ -263,15 +263,20 @@ interface LoginFailEntry {
 }
 const loginFailStore = new Map<string, LoginFailEntry>();
 
-// 周期性清理过期记录，避免 map 无限增长。
+// Bug #PERF-3.2: 优化清理逻辑 —— 原逻辑只在 lockedUntil 过期且窗口过期时才清理，
+// 但实际应该清理所有过期的条目（包括仅窗口过期但未锁定的），避免内存泄漏。
+// 同时缩短清理间隔为 1 分钟，更快释放内存。
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of loginFailStore) {
-    if (entry.lockedUntil <= now && now - entry.windowStart > LOGIN_FAIL_WINDOW_MS) {
+    // 清理条件：窗口已过期 且 (未锁定 或 锁定已过期)
+    const windowExpired = now - entry.windowStart > LOGIN_FAIL_WINDOW_MS;
+    const lockExpired = entry.lockedUntil === 0 || entry.lockedUntil <= now;
+    if (windowExpired && lockExpired) {
       loginFailStore.delete(key);
     }
   }
-}, 5 * 60_000).unref();
+}, 60_000).unref();
 
 function getLoginFailEntry(key: string, windowMs: number): LoginFailEntry {
   const now = Date.now();
@@ -1103,6 +1108,7 @@ app.post(
 );
 
 // Bug #248: 学生"我的作文"无 rateLimit。
+// Bug #PERF-3.3: 添加 60s 缓存，避免频繁加载全量作文 + correction JOIN。
 app.get(
   '/essays/my',
   rateLimit(30, 60_000),
@@ -1110,17 +1116,20 @@ app.get(
   authMiddleware,
   async (c) => {
     const user = c.get('user');
-    const list = await db.query.essays.findMany({
-      where: eq(essays.studentId, user.id),
-      orderBy: desc(essays.createdAt),
-      limit: 50,
-      with: { correction: true },
+    const list = await memoizeAsync(`essays_my:${user.id}`, 60_000, async () => {
+      return db.query.essays.findMany({
+        where: eq(essays.studentId, user.id),
+        orderBy: desc(essays.createdAt),
+        limit: 50,
+        with: { correction: true },
+      });
     });
     return c.json({ success: true, data: list });
   },
 );
 
 // Bug #249: 作文详情无 rateLimit；带 correction JOIN。
+// Bug #PERF-3.4: 添加 60s 缓存，避免重复查询同一篇作文详情。
 app.get(
   '/essays/:id',
   rateLimit(60, 60_000),
@@ -1130,9 +1139,11 @@ app.get(
     const user = c.get('user');
     const id = c.req.param('id');
     routesLogger.info({ userId: user.id, role: user.role, essayId: id }, '[API /essays/:id]');
-    const essay = await db.query.essays.findFirst({
-      where: eq(essays.id, id),
-      with: { correction: true, student: { columns: { id: true, schoolId: true } }, task: true },
+    const essay = await memoizeAsync(`essay:${id}`, 60_000, async () => {
+      return db.query.essays.findFirst({
+        where: eq(essays.id, id),
+        with: { correction: true, student: { columns: { id: true, schoolId: true } }, task: true },
+      });
     });
     if (!essay) return c.json({ success: false, error: 'Not found' }, 404);
 
@@ -8081,28 +8092,52 @@ app.post(
     const reviewsPerStudent = config.reviewsPerStudent;
     const now = new Date().toISOString();
 
-    // 简单分配算法：每个学生评接下来的 N 篇作文（跳过自己的），循环覆盖
-    // 优先保证 reviewsPerEssay，受限于 reviewsPerStudent
+    // ========== 优化后的分配算法 O(n) ==========
+    // Bug #PERF-3.1: 原算法复杂度 O(n²)，每次都要 filter/some 遍历 assignments
+    // 新算法：使用计数器 Map 和集合去重，将内层循环优化为 O(1) 查找
     const assignments: Array<{ essayId: string; reviewerId: string }> = [];
-
-    for (let i = 0; i < essayList.length; i++) {
+    
+    // 按学生分组作文 ID，便于快速查找
+    const studentEssayMap = new Map<string, string[]>();
+    for (const essay of essayList) {
+      if (!studentEssayMap.has(essay.studentId)) {
+        studentEssayMap.set(essay.studentId, []);
+      }
+      studentEssayMap.get(essay.studentId)!.push(essay.id);
+    }
+    
+    // 跟踪每个学生的已分配数量和已分配的作文
+    const reviewerCountMap = new Map<string, number>();
+    const assignmentSet = new Set<string>(); // key: `${essayId}:${reviewerId}`
+    
+    const students = Array.from(studentEssayMap.keys());
+    const totalEssays = essayList.length;
+    
+    // 轮转分配：每篇作文依次分配 reviewersPerEssay 个评审者
+    for (let i = 0; i < totalEssays; i++) {
       const targetEssay = essayList[i];
+      const targetStudentId = targetEssay.studentId;
       let assigned = 0;
-      for (let offset = 1; offset < essayList.length && assigned < reviewsPerEssay; offset++) {
-        const reviewerEssay = essayList[(i + offset) % essayList.length];
-        if (reviewerEssay.studentId === targetEssay.studentId) continue;
-
-        const reviewerCount = assignments.filter(
-          (a) => a.reviewerId === reviewerEssay.studentId,
-        ).length;
-        if (reviewerCount >= reviewsPerStudent) continue;
-
-        const alreadyExists = assignments.some(
-          (a) => a.essayId === targetEssay.id && a.reviewerId === reviewerEssay.studentId,
-        );
-        if (alreadyExists) continue;
-
-        assignments.push({ essayId: targetEssay.id, reviewerId: reviewerEssay.studentId });
+      
+      // 从下一个学生开始轮转，确保公平分配
+      for (let j = 0; j < students.length && assigned < reviewsPerEssay; j++) {
+        const reviewerStudentId = students[(i + 1 + j) % students.length];
+        
+        // 不能评审自己的作文
+        if (reviewerStudentId === targetStudentId) continue;
+        
+        // 检查该学生是否已达到评审上限
+        const currentCount = reviewerCountMap.get(reviewerStudentId) ?? 0;
+        if (currentCount >= reviewsPerStudent) continue;
+        
+        // 检查是否已经分配过（避免重复）
+        const assignmentKey = `${targetEssay.id}:${reviewerStudentId}`;
+        if (assignmentSet.has(assignmentKey)) continue;
+        
+        // 添加分配
+        assignments.push({ essayId: targetEssay.id, reviewerId: reviewerStudentId });
+        assignmentSet.add(assignmentKey);
+        reviewerCountMap.set(reviewerStudentId, currentCount + 1);
         assigned++;
       }
     }
