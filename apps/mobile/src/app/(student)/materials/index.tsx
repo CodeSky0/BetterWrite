@@ -1,4 +1,5 @@
 import {
+  EducationStageLabels,
   TopicTypeLabels,
   type WritingMaterial,
   WritingMaterialDifficultyLabels,
@@ -25,7 +26,7 @@ import { useTheme } from '../../../theme/dark-mode';
 
 const PAGE_SIZE = 20;
 
-type FilterKey = 'type' | 'topicType' | 'difficulty';
+type FilterKey = 'type' | 'topicType' | 'difficulty' | 'stage';
 
 const filterOptions: Array<{
   key: FilterKey;
@@ -39,6 +40,7 @@ const filterOptions: Array<{
     label: '难度',
     labels: WritingMaterialDifficultyLabels as Record<string, string>,
   },
+  { key: 'stage', label: '学段', labels: EducationStageLabels as Record<string, string> },
 ];
 
 export default function StudentMaterialsPage() {
@@ -51,6 +53,7 @@ export default function StudentMaterialsPage() {
     type: '',
     topicType: '',
     difficulty: '',
+    stage: '',
   });
   const [keyword, setKeyword] = useState('');
   const [loading, setLoading] = useState(true);
@@ -66,6 +69,7 @@ export default function StudentMaterialsPage() {
         type: filters.type || undefined,
         topicType: filters.topicType || undefined,
         difficulty: filters.difficulty || undefined,
+        stage: filters.stage || undefined,
         keyword: keyword || undefined,
         page,
         pageSize: PAGE_SIZE,
@@ -89,7 +93,7 @@ export default function StudentMaterialsPage() {
     return () => {
       cancelled = true;
     };
-  }, [page, filters.type, filters.topicType, filters.difficulty, keyword]);
+  }, [page, filters.type, filters.topicType, filters.difficulty, filters.stage, keyword]);
 
   const toggleFilter = (key: FilterKey) => {
     setFilters((prev) => {
